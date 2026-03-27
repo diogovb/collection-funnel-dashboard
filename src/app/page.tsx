@@ -37,7 +37,7 @@ interface UserRow {
   lastActivity: string;
 }
 
-type DatePreset = "7d" | "30d" | "90d" | "custom";
+type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
 // ── Helpers ────────────────────────────────────────────────────
 function daysAgo(n: number): string {
@@ -65,7 +65,7 @@ function pct(a: number, b: number): string {
 export default function Dashboard() {
   const [events, setEvents] = useState<FunnelEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [preset, setPreset] = useState<DatePreset>("30d");
+  const [preset, setPreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -74,6 +74,11 @@ export default function Dashboard() {
   const USERS_PER_PAGE = 20;
 
   const dateFrom = useMemo(() => {
+    if (preset === "today") {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.toISOString();
+    }
     if (preset === "7d") return daysAgo(7);
     if (preset === "30d") return daysAgo(30);
     if (preset === "90d") return daysAgo(90);
@@ -188,7 +193,7 @@ export default function Dashboard() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        {(["7d", "30d", "90d", "custom"] as DatePreset[]).map((p) => (
+        {(["today", "7d", "30d", "90d", "custom"] as DatePreset[]).map((p) => (
           <button
             key={p}
             onClick={() => { setPreset(p); setUserPage(0); }}
@@ -198,7 +203,7 @@ export default function Dashboard() {
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
             }`}
           >
-            {p === "7d" ? "7 dias" : p === "30d" ? "30 dias" : p === "90d" ? "90 dias" : "Personalizado"}
+            {p === "today" ? "Hoje" : p === "7d" ? "7 dias" : p === "30d" ? "30 dias" : p === "90d" ? "90 dias" : "Personalizado"}
           </button>
         ))}
         {preset === "custom" && (
