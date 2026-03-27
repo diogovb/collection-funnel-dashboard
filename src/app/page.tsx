@@ -216,7 +216,8 @@ export default function Dashboard() {
     STAGES.forEach((s) => uniqueByStage.set(s.key, new Set()));
     for (const ev of events) {
       const stage = ev.event as StageKey;
-      uniqueByStage.get(stage)?.add(ev.user_id);
+      const key = ev.email || ev.user_id;
+      if (key) uniqueByStage.get(stage)?.add(key);
     }
     return STAGES.map((s) => ({
       ...s,
@@ -229,7 +230,8 @@ export default function Dashboard() {
   const users = useMemo(() => {
     const map = new Map<string, UserRow>();
     for (const ev of events) {
-      const key = ev.user_id;
+      const key = ev.email || ev.user_id;
+      if (!key) continue; // Skip events without identifier
       if (!map.has(key)) {
         map.set(key, {
           email: ev.email,
@@ -244,8 +246,8 @@ export default function Dashboard() {
         u.stages.add(ev.event as StageKey);
       }
       if (ev.email && !u.email) u.email = ev.email;
+      if (ev.user_id && !u.user_id) u.user_id = ev.user_id;
       if (ev.created_at > u.lastActivity) u.lastActivity = ev.created_at;
-      // Keep the most recent metadata (usually from signup_completed)
       if (ev.metadata && ev.event === "signup_completed") {
         u.metadata = ev.metadata;
       }
