@@ -671,8 +671,8 @@ export default function Dashboard() {
 
       {/* Modal for stage users */}
       {selectedStage && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-900 rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden border border-gray-700">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-gray-900 sm:rounded-2xl max-w-4xl w-full h-full sm:h-auto sm:max-h-[80vh] overflow-hidden border-0 sm:border border-gray-700">
             <div className="flex items-center justify-between p-6 border-b border-gray-700">
               <h3 className="text-lg font-semibold">
                 Usuários em: {STAGES.find(s => s.key === selectedStage)?.label}
@@ -684,7 +684,7 @@ export default function Dashboard() {
                 ✕
               </button>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
+            <div className="p-4 sm:p-6 overflow-y-auto h-[calc(100vh-72px)] sm:h-auto sm:max-h-[60vh]">
               {stageUsers.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">Nenhum usuário encontrado nesta etapa</p>
               ) : (
