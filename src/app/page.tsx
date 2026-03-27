@@ -149,22 +149,25 @@ export default function Dashboard() {
     
     for (const event of events) {
       if (event.event === stageKey) {
+        const key = event.email || event.user_id || event.id;
+        if (!key) continue;
+        
         // Find their signup_completed event for metadata
         const signupEvent = events.find(e => 
-          e.user_id === event.user_id && e.event === "signup_completed"
+          (e.email === event.email || e.user_id === event.user_id) && e.event === "signup_completed"
         );
         
-        const metadata = signupEvent?.metadata as any;
-        usersAtStage.set(event.user_id, {
-          email: event.email,
-          name: metadata?.name,
-          phone: metadata?.phone,
-          profession: metadata?.profession,
-          software: metadata?.software,
-          projects_per_month: metadata?.projects_per_month,
-          interests: metadata?.interests,
+        const metadata = (signupEvent?.metadata || event.metadata || {}) as any;
+        usersAtStage.set(key, {
+          email: event.email || signupEvent?.email || "",
+          name: metadata?.name || "",
+          phone: metadata?.phone || "",
+          profession: metadata?.profession || "",
+          software: metadata?.software || [],
+          projects_per_month: metadata?.projects_per_month || "",
+          interests: metadata?.interests || [],
           created_at: event.created_at,
-          user_id: event.user_id,
+          user_id: event.user_id || "",
         });
       }
     }
@@ -188,12 +191,10 @@ export default function Dashboard() {
       });
       
       if (response.ok) {
-        // Refresh data
+        // Close modal and refresh data
+        setSelectedStage(null);
+        setStageUsers([]);
         await fetchEvents();
-        // Update stage users if modal is open
-        if (selectedStage) {
-          handleStageClick(selectedStage);
-        }
       } else {
         alert("Erro ao deletar usuário");
       }
@@ -202,7 +203,7 @@ export default function Dashboard() {
     } finally {
       setDeletingUser(null);
     }
-  }, [fetchEvents, selectedStage, handleStageClick]);
+  }, [fetchEvents]);
 
   // ── Computed data ──────────────────────────────────────────
   const stageCounts = useMemo(() => {
