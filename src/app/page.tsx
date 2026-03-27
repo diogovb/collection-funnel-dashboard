@@ -115,6 +115,10 @@ export default function Dashboard() {
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
+    
+    // Sync downloads from Collection Postgres (non-blocking)
+    fetch("/api/sync-downloads").catch(() => {});
+    
     const { data, error } = await supabase
       .from("funnel_events")
       .select("*")
