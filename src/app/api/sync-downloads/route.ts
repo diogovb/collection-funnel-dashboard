@@ -3,25 +3,14 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 // Metabase Collection PostgreSQL
 const METABASE_URL = "https://metabase.collection.com.br";
-const METABASE_USER = "diogo@collection.com.br";
-const METABASE_PASS = "a8523654A*";
+const METABASE_API_KEY = "mb_HCdbdyTeP9uQMmbIndq4p1Il1ZXsRWeEavGejy2vitU=";
 
-async function getMetabaseToken(): Promise<string> {
-  const res = await fetch(`${METABASE_URL}/api/session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: METABASE_USER, password: METABASE_PASS }),
-  });
-  const data = await res.json();
-  return data.id;
-}
-
-async function queryMetabase(token: string, sql: string): Promise<any[]> {
+async function queryMetabase(sql: string): Promise<any[]> {
   const res = await fetch(`${METABASE_URL}/api/dataset`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Metabase-Session": token,
+      "x-api-key": METABASE_API_KEY,
     },
     body: JSON.stringify({
       database: 10, // Collection PostgreSQL - PROD
@@ -67,11 +56,9 @@ export async function GET() {
     }
 
     // 2. Query Collection Postgres via Metabase for downloads
-    const token = await getMetabaseToken();
     const emailList = toCheck.map((e) => `'${e.replace(/'/g, "''")}'`).join(",");
     
     const rows = await queryMetabase(
-      token,
       `SELECT DISTINCT u.email
        FROM product_download pd
        JOIN "user" u ON u.id = pd."userId"

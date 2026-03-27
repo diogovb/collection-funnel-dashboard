@@ -243,7 +243,7 @@ export default function Dashboard() {
     const map = new Map<string, UserRow>();
     for (const ev of events) {
       const key = ev.email || ev.user_id;
-      if (!key) continue; // Skip events without identifier
+      if (!key) continue;
       if (!map.has(key)) {
         map.set(key, {
           email: ev.email,
@@ -264,7 +264,9 @@ export default function Dashboard() {
         u.metadata = ev.metadata;
       }
     }
-    return Array.from(map.values()).sort(
+    // Only include users who started from signup (sequential funnel)
+    const filtered = Array.from(map.values()).filter(u => u.stages.has("signup_completed"));
+    return filtered.sort(
       (a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
     );
   }, [events]);
