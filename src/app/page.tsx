@@ -571,9 +571,9 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {pagedUsers.map((u) => (
-                  <tr key={u.user_id} className="border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors">
+                  <tr key={u.user_id || u.email || Math.random().toString()} className="border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors">
                     <td className="py-3 px-4 font-mono text-xs truncate max-w-[200px]">
-                      {u.email || u.user_id.slice(0, 8) + "…"}
+                      {u.email || (u.user_id ? u.user_id.slice(0, 8) + "…" : "Anônimo")}
                     </td>
                     {STAGES.map((s, i) => (
                       <td key={s.key} className="py-3 px-2 text-center">
