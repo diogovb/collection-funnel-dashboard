@@ -151,10 +151,20 @@ export default function Dashboard() {
     // Get users for this stage with their metadata
     const usersAtStage = new Map<string, StageUser>();
     
+    // Build set of emails that have signup_completed (funnel entry)
+    const signupEmails = new Set<string>();
+    for (const ev of events) {
+      if (ev.event === "signup_completed" && ev.email) signupEmails.add(ev.email);
+    }
+
     for (const event of events) {
       if (event.event === stageKey) {
         const key = event.email || event.user_id || event.id;
         if (!key) continue;
+        
+        // Only show users who entered the funnel (have signup_completed)
+        const email = event.email || "";
+        if (!signupEmails.has(email) && stageKey !== "signup_completed") continue;
         
         // Find their signup_completed event for metadata
         const signupEvent = events.find(e => 
