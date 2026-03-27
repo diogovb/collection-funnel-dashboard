@@ -9,15 +9,15 @@ const STAGES = [
   { key: "email_confirmed", label: "Email Confirmado" },
   { key: "onboarding_started", label: "Onboarding Iniciado" },
   { key: "onboarding_completed", label: "Onboarding Completo" },
-  { key: "installer_opened", label: "Instalador Aberto" },
   { key: "installer_login", label: "Login no Instalador" },
   { key: "plugin_installed", label: "Plugin Instalado" },
+  { key: "first_download", label: "Primeiro Download" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"];
 
 const STAGE_COLORS = [
-  "#6366f1", "#8b5cf6", "#a78bfa", "#c084fc", "#d946ef", "#ec4899", "#f43f5e",
+  "#6366f1", "#8b5cf6", "#a78bfa", "#c084fc", "#d946ef", "#ec4899", "#10b981",
 ];
 
 // Pie chart colors for analytics cards
