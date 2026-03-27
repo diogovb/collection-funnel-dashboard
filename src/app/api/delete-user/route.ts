@@ -3,20 +3,24 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email } = await request.json();
+    const { email, user_id } = await request.json();
 
-    if (!email || typeof email !== "string") {
+    if (!email && !user_id) {
       return NextResponse.json(
-        { error: "Email é obrigatório" },
+        { error: "Email ou user_id é obrigatório" },
         { status: 400 }
       );
     }
 
-    // Delete all funnel_events for this email
-    const { error } = await supabaseAdmin
-      .from("funnel_events")
-      .delete()
-      .eq("email", email);
+    let query = supabaseAdmin.from("funnel_events").delete();
+
+    if (email) {
+      query = query.eq("email", email);
+    } else {
+      query = query.eq("user_id", user_id);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error("Erro ao deletar usuário:", error);

@@ -176,18 +176,19 @@ export default function Dashboard() {
   }, [events]);
 
   // ── Handle user delete ─────────────────────────────────────────
-  const handleDeleteUser = useCallback(async (email: string) => {
-    if (!confirm(`Tem certeza que deseja deletar todos os eventos para ${email}?`)) {
+  const handleDeleteUser = useCallback(async (email: string, userId?: string) => {
+    const identifier = email || userId || "este usuário";
+    if (!confirm(`Tem certeza que deseja deletar todos os eventos para ${identifier}?`)) {
       return;
     }
     
-    setDeletingUser(email);
+    setDeletingUser(email || userId || "");
     
     try {
       const response = await fetch("/api/delete-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email || null, user_id: userId || null }),
       });
       
       if (response.ok) {
@@ -677,11 +678,11 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-500">Criado: {formatDate(user.created_at)}</p>
                       </div>
                       <button
-                        onClick={() => handleDeleteUser(user.email)}
-                        disabled={deletingUser === user.email}
+                        onClick={() => handleDeleteUser(user.email, user.user_id)}
+                        disabled={deletingUser === (user.email || user.user_id)}
                         className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm transition-colors"
                       >
-                        {deletingUser === user.email ? "Deletando..." : "Deletar"}
+                        {deletingUser === (user.email || user.user_id) ? "Deletando..." : "Deletar"}
                       </button>
                     </div>
                   ))}
