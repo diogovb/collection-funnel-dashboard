@@ -186,7 +186,9 @@ export default function Dashboard() {
       }
     }
     
-    setStageUsers(Array.from(usersAtStage.values()));
+    setStageUsers(Array.from(usersAtStage.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ));
   }, [events]);
 
   // ── Handle user delete ─────────────────────────────────────────
