@@ -212,17 +212,29 @@ export default function Dashboard() {
 
   // ── Computed data ──────────────────────────────────────────
   const stageCounts = useMemo(() => {
-    const uniqueByStage = new Map<StageKey, Set<string>>();
-    STAGES.forEach((s) => uniqueByStage.set(s.key, new Set()));
+    // Build a map of email → Set of stages they completed
+    const userStages = new Map<string, Set<string>>();
     for (const ev of events) {
-      const stage = ev.event as StageKey;
       const key = ev.email || ev.user_id;
-      if (key) uniqueByStage.get(stage)?.add(key);
+      if (!key) continue;
+      if (!userStages.has(key)) userStages.set(key, new Set());
+      userStages.get(key)!.add(ev.event);
     }
-    return STAGES.map((s) => ({
-      ...s,
-      count: uniqueByStage.get(s.key)?.size ?? 0,
-    }));
+
+    // Sequential funnel: only count users who started from signup_completed
+    // Each stage = users who have signup_completed AND this stage
+    const signupUsers = new Set<string>();
+    userStages.forEach((stages, email) => {
+      if (stages.has("signup_completed")) signupUsers.add(email);
+    });
+
+    return STAGES.map((s) => {
+      let count = 0;
+      signupUsers.forEach((email) => {
+        if (userStages.get(email)?.has(s.key)) count++;
+      });
+      return { ...s, count };
+    });
   }, [events]);
 
   const maxCount = Math.max(1, ...stageCounts.map((s) => s.count));
