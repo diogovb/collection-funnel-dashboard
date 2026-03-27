@@ -52,6 +52,8 @@ interface StageUser {
   software?: string[];
   projects_per_month?: string;
   interests?: string[];
+  sketchup_versions?: string;
+  installed_versions?: string;
   created_at: string;
   user_id: string;
 }
@@ -172,6 +174,19 @@ export default function Dashboard() {
         );
         
         const metadata = (signupEvent?.metadata || event.metadata || {}) as any;
+        
+        // Find sketchup_detected event for this user
+        const detectEvent = events.find(e =>
+          (e.email === (event.email || signupEvent?.email) || e.user_id === event.user_id) && e.event === "sketchup_detected"
+        );
+        const detectMeta = (detectEvent?.metadata || {}) as any;
+        
+        // Find plugin_installed event for installed versions
+        const installEvent = events.find(e =>
+          (e.email === (event.email || signupEvent?.email) || e.user_id === event.user_id) && e.event === "plugin_installed"
+        );
+        const installMeta = (installEvent?.metadata || {}) as any;
+
         usersAtStage.set(key, {
           email: event.email || signupEvent?.email || "",
           name: metadata?.name || "",
@@ -180,6 +195,8 @@ export default function Dashboard() {
           software: metadata?.software || [],
           projects_per_month: metadata?.projects_per_month || "",
           interests: metadata?.interests || [],
+          sketchup_versions: detectMeta?.versions_found || "",
+          installed_versions: installMeta?.sketchup_versions || "",
           created_at: event.created_at,
           user_id: event.user_id || "",
         });
@@ -706,6 +723,12 @@ export default function Dashboard() {
                         )}
                         {user.interests && (
                           <p className="text-sm text-gray-400">Interesses: {user.interests.join(", ")}</p>
+                        )}
+                        {user.sketchup_versions && (
+                          <p className="text-sm text-gray-400">🔍 SketchUp detectado: {user.sketchup_versions}</p>
+                        )}
+                        {user.installed_versions && (
+                          <p className="text-sm text-emerald-400">✅ Instalou em: {user.installed_versions}</p>
                         )}
                         <p className="text-xs text-gray-500">Criado: {formatDate(user.created_at)}</p>
                       </div>
