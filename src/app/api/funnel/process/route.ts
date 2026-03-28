@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-const RESEND_API_KEY = "re_8xDwkP1Q_AJYZnYEkiT597ggtF5E338m7";
-const SMSDEV_API_KEY = "RC0300UPDGPKSHYZSULTUD7CF6SBX95QJGD3KLJ5FYTEKCG4P6MS99T7ISEX90FWX2OD3I48TF7FPOH5CE46IZX19S0UMZ2D1HROVLDILU8ZXACU7I4SZDY7VO7PI7LV";
+const RESEND_API_KEY = process.env.RESEND_API_KEY!;
+const SMSDEV_API_KEY = process.env.SMSDEV_API_KEY!;
 const EMAIL_FROM = "Collection <noreply@pag.collection.com.br>";
 
 interface FunnelEvent {
