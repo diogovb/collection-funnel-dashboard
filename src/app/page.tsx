@@ -436,14 +436,14 @@ export default function Dashboard() {
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
               Funil de Conversão
             </h1>
-            <p className="text-gray-400 mt-1">Collection — Dashboard em tempo real</p>
+            <p className="text-gray-400 mt-1 text-xs sm:text-base">Collection — Dashboard em tempo real</p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-400">
             {loading && (
@@ -456,18 +456,18 @@ export default function Dashboard() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {(["today", "7d", "30d", "90d", "custom"] as DatePreset[]).map((p) => (
             <button
               key={p}
               onClick={() => { setPreset(p); setUserPage(0); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
                 preset === p
                   ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg"
                   : "bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50"
               }`}
             >
-              {p === "today" ? "Hoje" : p === "7d" ? "7 dias" : p === "30d" ? "30 dias" : p === "90d" ? "90 dias" : "Personalizado"}
+              {p === "today" ? "Hoje" : p === "7d" ? "7d" : p === "30d" ? "30d" : p === "90d" ? "90d" : "Custom"}
             </button>
           ))}
           {preset === "custom" && (
@@ -496,7 +496,7 @@ export default function Dashboard() {
         </div>
 
         {/* Top summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           <Card label="Usuários Únicos" value={users.length.toLocaleString("pt-BR")} />
           <Card
             label="Taxa Geral"
@@ -535,7 +535,7 @@ export default function Dashboard() {
         </div>
 
         {/* Analytics pie charts */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <PieCard title="Profissão" data={analyticsData.professions.slice(0, 5)} />
           <PieCard title="Projetos/mês" data={analyticsData.projects.slice(0, 5)} />
           <PieCard title="Software" data={analyticsData.software.slice(0, 5)} />
@@ -543,9 +543,9 @@ export default function Dashboard() {
         </div>
 
         {/* Funnel visualization */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 space-y-4 border border-gray-800/50">
-          <h2 className="text-lg font-semibold mb-2">Funil</h2>
-          <div className="space-y-3">
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-800/50">
+          <h2 className="text-base sm:text-lg font-semibold mb-1 sm:mb-2">Funil</h2>
+          <div className="space-y-2 sm:space-y-3">
             {stageCounts.map((stage, i) => {
               const widthPct = (stage.count / maxCount) * 100;
               const convFromPrev =
@@ -560,50 +560,48 @@ export default function Dashboard() {
               return (
                 <div key={stage.key} className="group">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium text-gray-300 w-52 truncate">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                      <span className="text-xs sm:text-sm font-medium text-gray-300 truncate max-w-[120px] sm:max-w-[200px]">
                         {stage.label}
                       </span>
-                      <span className="text-xl font-bold tabular-nums">
+                      <span className="text-lg sm:text-xl font-bold tabular-nums flex-shrink-0">
                         {stage.count.toLocaleString("pt-BR")}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-400">
+                    <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-gray-400 flex-shrink-0">
                       {convFromPrev && (
-                        <span>
-                          {convFromPrev} do anterior
-                        </span>
+                        <span>{convFromPrev}</span>
                       )}
                       {convFromFirst && (
-                        <span className="text-gray-500">
+                        <span className="text-gray-500 hidden sm:inline">
                           {convFromFirst} do início
                         </span>
                       )}
                     </div>
                   </div>
                   <div 
-                    className="h-10 bg-gray-800/50 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-800/70 transition-all duration-200"
+                    className="h-8 sm:h-10 bg-gray-800/50 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-800/70 transition-all duration-200"
                     onClick={() => handleStageClick(stage.key)}
                     title={`Clique para ver usuários em ${stage.label}`}
                   >
                     <div
-                      className="h-full rounded-lg transition-all duration-700 ease-out flex items-center justify-end pr-3 hover:opacity-90"
+                      className="h-full rounded-lg transition-all duration-700 ease-out flex items-center justify-end pr-2 sm:pr-3 hover:opacity-90"
                       style={{
                         width: `${Math.max(widthPct, 2)}%`,
                         backgroundColor: STAGE_COLORS[i],
                       }}
                     >
-                      {widthPct > 15 && (
-                        <span className="text-xs font-semibold text-white/90">
+                      {widthPct > 20 && (
+                        <span className="text-[10px] sm:text-xs font-semibold text-white/90">
                           {stage.count.toLocaleString("pt-BR")}
                         </span>
                       )}
                     </div>
                   </div>
                   {i < stageCounts.length - 1 && (
-                    <div className="flex justify-center my-1">
-                      <svg width="20" height="16" className="text-gray-600">
-                        <path d="M10 0 L10 12 M5 8 L10 14 L15 8" stroke="currentColor" fill="none" strokeWidth="1.5" />
+                    <div className="flex justify-center my-0.5 sm:my-1">
+                      <svg width="16" height="12" className="text-gray-600 sm:w-5 sm:h-4">
+                        <path d="M8 0 L8 8 M4 5 L8 10 L12 5" stroke="currentColor" fill="none" strokeWidth="1.5" />
                       </svg>
                     </div>
                   )}
@@ -615,40 +613,43 @@ export default function Dashboard() {
 
         {/* Onboarding sub-funnel */}
         {onboardingSubCounts.some(s => s.count > 0) && (
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 space-y-4 border border-gray-800/50">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">🎯 Detalhe do Onboarding</h2>
-            <span className="text-xs text-gray-500">Onde os usuários param no onboarding?</span>
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-800/50">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <h2 className="text-base sm:text-lg font-semibold">🎯 Detalhe do Onboarding</h2>
+            <span className="text-[10px] sm:text-xs text-gray-500">Onde os usuários param?</span>
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
-            {onboardingSubCounts.map((sub, i) => {
-              const prevCount = i > 0 ? onboardingSubCounts[i - 1].count : sub.count;
-              const dropPct = prevCount > 0 && i > 0 ? Math.round(((prevCount - sub.count) / prevCount) * 100) : 0;
-              return (
-                <div key={sub.key} className="text-center space-y-1">
-                  <div className="text-2xl">{sub.icon}</div>
-                  <p className="text-2xl font-bold tabular-nums">{sub.count}</p>
-                  <p className="text-[10px] text-gray-400 leading-tight">{sub.label}</p>
-                  {i > 0 && dropPct > 0 && (
-                    <p className="text-[10px] text-red-400">-{dropPct}%</p>
-                  )}
-                  {i > 0 && dropPct === 0 && sub.count > 0 && (
-                    <p className="text-[10px] text-green-400">100%</p>
-                  )}
-                </div>
-              );
-            })}
+          {/* Scrollable horizontal icon strip on mobile */}
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="flex sm:grid sm:grid-cols-5 lg:grid-cols-9 gap-3 sm:gap-2 min-w-max sm:min-w-0">
+              {onboardingSubCounts.map((sub, i) => {
+                const prevCount = i > 0 ? onboardingSubCounts[i - 1].count : sub.count;
+                const dropPct = prevCount > 0 && i > 0 ? Math.round(((prevCount - sub.count) / prevCount) * 100) : 0;
+                return (
+                  <div key={sub.key} className="text-center space-y-0.5 sm:space-y-1 min-w-[60px]">
+                    <div className="text-xl sm:text-2xl">{sub.icon}</div>
+                    <p className="text-lg sm:text-2xl font-bold tabular-nums">{sub.count}</p>
+                    <p className="text-[9px] sm:text-[10px] text-gray-400 leading-tight whitespace-nowrap">{sub.label}</p>
+                    {i > 0 && dropPct > 0 && (
+                      <p className="text-[9px] sm:text-[10px] text-red-400">-{dropPct}%</p>
+                    )}
+                    {i > 0 && dropPct === 0 && sub.count > 0 && (
+                      <p className="text-[9px] sm:text-[10px] text-green-400">100%</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
           {/* Mini funnel bars */}
-          <div className="space-y-1.5 mt-4">
+          <div className="space-y-1 sm:space-y-1.5 mt-3 sm:mt-4">
             {onboardingSubCounts.map((sub, i) => {
               const widthPct = (sub.count / maxOnboardingCount) * 100;
               return (
-                <div key={sub.key} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 w-36 truncate flex items-center gap-1">
-                    {sub.icon} {sub.label}
+                <div key={sub.key} className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-[10px] sm:text-xs text-gray-400 w-24 sm:w-36 truncate flex items-center gap-1">
+                    {sub.icon} <span className="hidden sm:inline">{sub.label}</span><span className="sm:hidden">{sub.label.split(" ")[0]}</span>
                   </span>
-                  <div className="flex-1 h-6 bg-gray-800/40 rounded-md overflow-hidden">
+                  <div className="flex-1 h-5 sm:h-6 bg-gray-800/40 rounded-md overflow-hidden">
                     <div
                       className="h-full rounded-md transition-all duration-500"
                       style={{
@@ -657,7 +658,7 @@ export default function Dashboard() {
                       }}
                     />
                   </div>
-                  <span className="text-xs font-medium tabular-nums w-10 text-right">{sub.count}</span>
+                  <span className="text-[10px] sm:text-xs font-medium tabular-nums w-8 sm:w-10 text-right">{sub.count}</span>
                 </div>
               );
             })}
@@ -666,17 +667,17 @@ export default function Dashboard() {
         )}
 
         {/* Stage-to-stage conversion table */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-800/50">
-          <h2 className="text-lg font-semibold mb-4">Conversão entre Etapas</h2>
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
+          <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Conversão entre Etapas</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800/50">
-                  <th className="text-left py-3 px-4 text-gray-400 font-medium">Etapa</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-medium">Usuários</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-medium">Conv. do Anterior</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-medium">Conv. do Início</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-medium">Drop-off</th>
+                  <th className="text-left py-2 sm:py-3 px-2 sm:px-4 text-gray-400 font-medium text-xs sm:text-sm">Etapa</th>
+                  <th className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-400 font-medium text-xs sm:text-sm">Qtd</th>
+                  <th className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-400 font-medium text-xs sm:text-sm">Conv.</th>
+                  <th className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-400 font-medium text-xs sm:text-sm hidden sm:table-cell">Do Início</th>
+                  <th className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-400 font-medium text-xs sm:text-sm">Drop</th>
                 </tr>
               </thead>
               <tbody>
@@ -686,23 +687,25 @@ export default function Dashboard() {
                   const dropoff = i > 0 && prev > 0 ? prev - stage.count : 0;
                   return (
                     <tr key={stage.key} className="border-b border-gray-800/30 hover:bg-gray-800/20 transition-colors">
-                      <td className="py-3 px-4 flex items-center gap-2">
-                        <span
-                          className="w-3 h-3 rounded-full inline-block"
-                          style={{ backgroundColor: STAGE_COLORS[i] }}
-                        />
-                        {stage.label}
+                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-xs sm:text-sm">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <span
+                            className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full inline-block flex-shrink-0"
+                            style={{ backgroundColor: STAGE_COLORS[i] }}
+                          />
+                          <span className="truncate max-w-[100px] sm:max-w-none">{stage.label}</span>
+                        </div>
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold">
+                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-right font-mono font-semibold text-xs sm:text-sm">
                         {stage.count.toLocaleString("pt-BR")}
                       </td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-right text-xs sm:text-sm">
                         {i === 0 ? "—" : pct(stage.count, prev)}
                       </td>
-                      <td className="py-3 px-4 text-right text-gray-400">
+                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-right text-gray-400 text-xs sm:text-sm hidden sm:table-cell">
                         {i === 0 ? "100%" : pct(stage.count, first)}
                       </td>
-                      <td className="py-3 px-4 text-right text-red-400/80">
+                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-right text-red-400/80 text-xs sm:text-sm">
                         {dropoff > 0 ? `-${dropoff.toLocaleString("pt-BR")}` : "—"}
                       </td>
                     </tr>
@@ -714,14 +717,14 @@ export default function Dashboard() {
         </div>
 
         {/* Automações */}
-        <div className="bg-gray-900/50 rounded-2xl p-6 border border-gray-800">
+        <div className="bg-gray-900/50 rounded-2xl p-3 sm:p-6 border border-gray-800">
           <AutomationPanel />
         </div>
 
         {/* Users table */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-800/50">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-            <h2 className="text-lg font-semibold">
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-3 sm:mb-4">
+            <h2 className="text-base sm:text-lg font-semibold">
               Usuários ({filteredUsers.length.toLocaleString("pt-BR")})
             </h2>
             <input
@@ -729,10 +732,41 @@ export default function Dashboard() {
               placeholder="Buscar por email..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setUserPage(0); }}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-4 py-2 text-sm w-full sm:w-72 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 sm:px-4 py-2 text-sm w-full sm:w-72 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
-          <div className="overflow-x-auto">
+          {/* Mobile: card layout */}
+          <div className="sm:hidden space-y-2">
+            {pagedUsers.map((u) => (
+              <div key={u.user_id || u.email || Math.random().toString()} className="bg-gray-800/30 rounded-lg p-3 space-y-2">
+                <p className="font-mono text-xs truncate text-gray-200">
+                  {u.email || (u.user_id ? u.user_id.slice(0, 8) + "…" : "Anônimo")}
+                </p>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {STAGES.map((s, i) => (
+                    <span
+                      key={s.key}
+                      title={s.label}
+                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] ${
+                        u.stages.has(s.key) ? "text-white" : "bg-gray-800/50 text-gray-600"
+                      }`}
+                      style={u.stages.has(s.key) ? { backgroundColor: STAGE_COLORS[i] } : {}}
+                    >
+                      {u.stages.has(s.key) ? "✓" : "·"}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-500">{formatDate(u.lastActivity)}</p>
+              </div>
+            ))}
+            {pagedUsers.length === 0 && (
+              <p className="py-8 text-center text-gray-500 text-sm">
+                {loading ? "Carregando..." : "Nenhum usuário encontrado"}
+              </p>
+            )}
+          </div>
+          {/* Desktop: table layout */}
+          <div className="overflow-x-auto hidden sm:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800/50">
@@ -788,24 +822,24 @@ export default function Dashboard() {
           </div>
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 text-sm">
+            <div className="flex items-center justify-between mt-3 sm:mt-4 text-xs sm:text-sm">
               <span className="text-gray-500">
-                Página {userPage + 1} de {totalPages}
+                {userPage + 1}/{totalPages}
               </span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setUserPage((p) => Math.max(0, p - 1))}
                   disabled={userPage === 0}
-                  className="px-3 py-1 rounded bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 disabled:opacity-40 border border-gray-700/50 transition-colors"
+                  className="px-2 sm:px-3 py-1 rounded bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 disabled:opacity-40 border border-gray-700/50 transition-colors"
                 >
-                  ← Anterior
+                  ←
                 </button>
                 <button
                   onClick={() => setUserPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={userPage >= totalPages - 1}
-                  className="px-3 py-1 rounded bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 disabled:opacity-40 border border-gray-700/50 transition-colors"
+                  className="px-2 sm:px-3 py-1 rounded bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 disabled:opacity-40 border border-gray-700/50 transition-colors"
                 >
-                  Próxima →
+                  →
                 </button>
               </div>
             </div>
@@ -822,26 +856,26 @@ export default function Dashboard() {
       {selectedStage && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-gray-900 sm:rounded-2xl max-w-4xl w-full h-full sm:h-auto sm:max-h-[80vh] overflow-hidden border-0 sm:border border-gray-700">
-            <div className="flex items-center justify-between p-6 border-b border-gray-700">
-              <h3 className="text-lg font-semibold">
-                Usuários em: {STAGES.find(s => s.key === selectedStage)?.label}
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-700">
+              <h3 className="text-base sm:text-lg font-semibold truncate">
+                {STAGES.find(s => s.key === selectedStage)?.label}
               </h3>
               <button
                 onClick={() => setSelectedStage(null)}
-                className="text-gray-400 hover:text-white transition-colors"
+                className="text-gray-400 hover:text-white transition-colors ml-2 flex-shrink-0"
               >
                 ✕
               </button>
             </div>
-            <div className="p-4 sm:p-6 overflow-y-auto h-[calc(100vh-72px)] sm:h-auto sm:max-h-[60vh]">
+            <div className="p-3 sm:p-6 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[60vh]">
               {stageUsers.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">Nenhum usuário encontrado nesta etapa</p>
+                <p className="text-gray-500 text-center py-8 text-sm">Nenhum usuário encontrado nesta etapa</p>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   {stageUsers.map((user) => (
-                    <div key={user.user_id} className="bg-gray-800/30 rounded-lg p-4 flex items-center justify-between">
-                      <div className="space-y-1">
-                        <p className="font-medium">{user.email}</p>
+                    <div key={user.user_id} className="bg-gray-800/30 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-1 min-w-0">
+                        <p className="font-medium text-sm sm:text-base truncate">{user.email}</p>
                         {user.name && <p className="text-sm text-gray-400">Nome: {user.name}</p>}
                         {user.phone && <p className="text-sm text-gray-400">Telefone: {user.phone}</p>}
                         {user.profession && <p className="text-sm text-gray-400">Profissão: {user.profession}</p>}
@@ -891,9 +925,9 @@ export default function Dashboard() {
                       <button
                         onClick={() => handleDeleteUser(user.email, user.user_id)}
                         disabled={deletingUser === (user.email || user.user_id)}
-                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm transition-colors self-start sm:self-center flex-shrink-0"
                       >
-                        {deletingUser === (user.email || user.user_id) ? "Deletando..." : "Deletar"}
+                        {deletingUser === (user.email || user.user_id) ? "..." : "Deletar"}
                       </button>
                     </div>
                   ))}
@@ -910,10 +944,10 @@ export default function Dashboard() {
 // ── Card component ─────────────────────────────────────────────
 function Card({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-4 border border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-      <p className="text-xs text-gray-400 uppercase tracking-wide">{label}</p>
-      <p className="text-2xl font-bold mt-1 tabular-nums">{value}</p>
-      {sub && <p className="text-xs text-gray-500 mt-1 truncate">{sub}</p>}
+    <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+      <p className="text-[10px] sm:text-xs text-gray-400 uppercase tracking-wide">{label}</p>
+      <p className="text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1 tabular-nums">{value}</p>
+      {sub && <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 truncate">{sub}</p>}
     </div>
   );
 }
@@ -949,12 +983,12 @@ function PieCard({ title, data }: { title: string; data: [string, number][] }) {
   });
 
   return (
-    <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-4 border border-gray-800/50">
-      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3">{title}</p>
-      <div className="flex items-center gap-4">
-        <div className="relative w-16 h-16">
+    <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-gray-800/50">
+      <p className="text-[10px] sm:text-xs text-gray-400 uppercase tracking-wide mb-2 sm:mb-3">{title}</p>
+      <div className="flex items-center gap-2 sm:gap-4">
+        <div className="relative w-12 h-12 sm:w-16 sm:h-16 flex-shrink-0">
           <div
-            className="w-16 h-16 rounded-full"
+            className="w-12 h-12 sm:w-16 sm:h-16 rounded-full"
             style={{
               background: `conic-gradient(${segments
                 .map(
@@ -966,28 +1000,28 @@ function PieCard({ title, data }: { title: string; data: [string, number][] }) {
                 .join(", ")})`,
             }}
           />
-          <div className="absolute inset-2 bg-gray-900 rounded-full flex items-center justify-center">
-            <span className="text-xs font-bold">{total}</span>
+          <div className="absolute inset-1.5 sm:inset-2 bg-gray-900 rounded-full flex items-center justify-center">
+            <span className="text-[10px] sm:text-xs font-bold">{total}</span>
           </div>
         </div>
         <div className="flex-1 space-y-1">
           {segments.slice(0, 3).map((seg) => (
-            <div key={seg.label} className="flex items-center gap-2">
+            <div key={seg.label} className="flex items-center gap-1 sm:gap-2">
               <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
+                className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: seg.color }}
               />
-              <span className="text-xs text-gray-400 truncate flex-1">
+              <span className="text-[10px] sm:text-xs text-gray-400 truncate flex-1">
                 {seg.label}
               </span>
-              <span className="text-xs text-gray-300 font-mono">
+              <span className="text-[10px] sm:text-xs text-gray-300 font-mono">
                 {seg.count}
               </span>
             </div>
           ))}
           {data.length > 3 && (
-            <div className="text-xs text-gray-500">
-              +{data.length - 3} outros
+            <div className="text-[10px] sm:text-xs text-gray-500">
+              +{data.length - 3}
             </div>
           )}
         </div>

@@ -13,6 +13,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" className="dark">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+      </head>
       <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">
         {children}
       </body>
