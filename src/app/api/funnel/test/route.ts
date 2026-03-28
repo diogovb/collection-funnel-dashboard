@@ -1,32 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { wrapEmailHTML } from "@/lib/email-template";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY!;
 const SMSDEV_API_KEY = process.env.SMSDEV_API_KEY!;
 const EMAIL_FROM = "Collection <noreply@pag.collection.com.br>";
-
-// Email template (same as Dunning design)
-function wrapEmailHTML(content: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#FAFAF7;font-family:Georgia,'Times New Roman',serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#FAFAF7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
-<tr><td style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);padding:32px 40px;text-align:center;">
-<h1 style="margin:0;color:#FFC400;font-size:24px;font-family:Georgia,serif;font-weight:normal;">Collection</h1>
-</td></tr>
-<tr><td style="padding:40px;">
-<div style="font-size:16px;line-height:1.7;color:#333;">${content}</div>
-</td></tr>
-<tr><td style="padding:0 40px 32px;text-align:center;">
-<a href="https://app.collection.com.br" style="display:inline-block;background:#FFC400;color:#1a1a2e;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Acessar Collection</a>
-</td></tr>
-<tr><td style="padding:24px 40px;border-top:1px solid #eee;text-align:center;">
-<p style="margin:0;font-size:12px;color:#999;">© Collection · Maior ecossistema de arquitetura do Brasil</p>
-</td></tr>
-</table>
-</td></tr></table></body></html>`;
-}
 
 function formatPhone(phone: string): string | null {
   if (!phone) return null;
