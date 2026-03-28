@@ -392,22 +392,6 @@ export default function AutomationPanel() {
           )}
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          {rules.length > 0 && (
-            <>
-              <button onClick={toggleAll}
-                className={`flex-1 sm:flex-none px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
-                  activeCount === 0
-                    ? "bg-green-600 hover:bg-green-700 text-white"
-                    : "bg-yellow-600 hover:bg-yellow-700 text-white"
-                }`}>
-                {activeCount === 0 ? "▶️ Ativar" : "⏸️ Pausar"}
-              </button>
-              <button onClick={handleProcess} disabled={processing || activeCount === 0}
-                className="flex-1 sm:flex-none px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg text-xs sm:text-sm font-medium transition-colors">
-                {processing ? "..." : "🔄 Rodar"}
-              </button>
-            </>
-          )}
           <button onClick={() => setEditingRule(null)}
             className="flex-1 sm:flex-none px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs sm:text-sm font-medium transition-colors">
             + Nova regra
@@ -453,9 +437,9 @@ export default function AutomationPanel() {
                       <span className="text-gray-400">{rule.delay_minutes}min</span>
                       <span>{CHANNEL_ICONS[rule.channel]}</span>
                     </div>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-1 break-all">
                       {rule.subject && `📌 ${rule.subject} — `}
-                      {rule.content.replace(/<[^>]*>/g, "").substring(0, 60)}...
+                      {rule.content.replace(/<[^>]*>/g, "").substring(0, 50)}…
                     </p>
                   </div>
                 </div>
