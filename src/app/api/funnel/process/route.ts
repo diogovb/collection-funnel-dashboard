@@ -29,9 +29,15 @@ interface FunnelRule {
 }
 
 // Replace template variables {{name}}, {{email}}, {{phone}}
+function formatFirstName(raw: string): string {
+  const first = raw.split(/\s+/)[0].toLowerCase();
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
 function replaceVars(template: string, metadata: Record<string, any> | null, email: string): string {
   let result = template;
-  const name = metadata?.name || email.split("@")[0];
+  const rawName = metadata?.name || email.split("@")[0];
+  const name = formatFirstName(rawName);
   const phone = metadata?.phone || "";
   result = result.replace(/\{\{name\}\}/g, name);
   result = result.replace(/\{\{email\}\}/g, email);
