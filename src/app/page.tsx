@@ -146,6 +146,22 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchEvents]);
 
+  // ── Merge events by user_id ↔ email crossref ──────────────
+  const mergedEvents = useMemo(() => {
+    // Build a map: user_id → email (from events that have both)
+    const uidToEmail = new Map<string, string>();
+    for (const ev of events) {
+      if (ev.user_id && ev.email) uidToEmail.set(ev.user_id, ev.email);
+    }
+    // Enrich events that have user_id but no email
+    return events.map(ev => {
+      if (!ev.email && ev.user_id && uidToEmail.has(ev.user_id)) {
+        return { ...ev, email: uidToEmail.get(ev.user_id)! };
+      }
+      return ev;
+    });
+  }, [events]);
+
   // ── Handle stage click ─────────────────────────────────────────
   const handleStageClick = useCallback(async (stageKey: StageKey) => {
     setSelectedStage(stageKey);
@@ -155,11 +171,11 @@ export default function Dashboard() {
     
     // Build set of emails that have signup_completed (funnel entry)
     const signupEmails = new Set<string>();
-    for (const ev of events) {
+    for (const ev of mergedEvents) {
       if (ev.event === "signup_completed" && ev.email) signupEmails.add(ev.email);
     }
 
-    for (const event of events) {
+    for (const event of mergedEvents) {
       if (event.event === stageKey) {
         const key = event.email || event.user_id || event.id;
         if (!key) continue;
@@ -169,20 +185,20 @@ export default function Dashboard() {
         if (!signupEmails.has(email) && stageKey !== "signup_completed") continue;
         
         // Find their signup_completed event for metadata
-        const signupEvent = events.find(e => 
+        const signupEvent = mergedEvents.find(e => 
           (e.email === event.email || e.user_id === event.user_id) && e.event === "signup_completed"
         );
         
         const metadata = (signupEvent?.metadata || event.metadata || {}) as any;
         
         // Find sketchup_detected event for this user
-        const detectEvent = events.find(e =>
+        const detectEvent = mergedEvents.find(e =>
           (e.email === (event.email || signupEvent?.email) || e.user_id === event.user_id) && e.event === "sketchup_detected"
         );
         const detectMeta = (detectEvent?.metadata || {}) as any;
         
         // Find plugin_installed event for installed versions
-        const installEvent = events.find(e =>
+        const installEvent = mergedEvents.find(e =>
           (e.email === (event.email || signupEvent?.email) || e.user_id === event.user_id) && e.event === "plugin_installed"
         );
         const installMeta = (installEvent?.metadata || {}) as any;
@@ -206,7 +222,7 @@ export default function Dashboard() {
     setStageUsers(Array.from(usersAtStage.values()).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     ));
-  }, [events]);
+  }, [mergedEvents]);
 
   // ── Handle user delete ─────────────────────────────────────────
   const handleDeleteUser = useCallback(async (email: string, userId?: string) => {
@@ -243,7 +259,7 @@ export default function Dashboard() {
   const stageCounts = useMemo(() => {
     // Build a map of email → Set of stages they completed
     const userStages = new Map<string, Set<string>>();
-    for (const ev of events) {
+    for (const ev of mergedEvents) {
       const key = ev.email || ev.user_id;
       if (!key) continue;
       if (!userStages.has(key)) userStages.set(key, new Set());
@@ -270,7 +286,7 @@ export default function Dashboard() {
 
   const users = useMemo(() => {
     const map = new Map<string, UserRow>();
-    for (const ev of events) {
+    for (const ev of mergedEvents) {
       const key = ev.email || ev.user_id;
       if (!key) continue;
       if (!map.has(key)) {
@@ -298,7 +314,7 @@ export default function Dashboard() {
     return filtered.sort(
       (a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
     );
-  }, [events]);
+  }, [mergedEvents]);
 
   // ── Analytics data for pie charts ─────────────────────────────
   const analyticsData = useMemo(() => {
