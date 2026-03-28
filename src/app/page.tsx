@@ -154,12 +154,35 @@ export default function Dashboard() {
       if (ev.user_id && ev.email) uidToEmail.set(ev.user_id, ev.email);
     }
     // Enrich events that have user_id but no email
-    return events.map(ev => {
+    const enriched = events.map(ev => {
       if (!ev.email && ev.user_id && uidToEmail.has(ev.user_id)) {
         return { ...ev, email: uidToEmail.get(ev.user_id)! };
       }
       return ev;
     });
+
+    // Infer missing stages: if user has plugin_installed with a known user_id,
+    // they must have logged in (installer only knows user_id after login)
+    const userEvents = new Map<string, Set<string>>();
+    for (const ev of enriched) {
+      const key = ev.email || ev.user_id;
+      if (!key) continue;
+      if (!userEvents.has(key)) userEvents.set(key, new Set());
+      userEvents.get(key)!.add(ev.event);
+    }
+
+    const synthetic: typeof enriched = [];
+    userEvents.forEach((stages, key) => {
+      if (stages.has("plugin_installed") && !stages.has("installer_login")) {
+        // Find the plugin_installed event to copy metadata from
+        const ref = enriched.find(e => (e.email === key || e.user_id === key) && e.event === "plugin_installed");
+        if (ref) {
+          synthetic.push({ ...ref, event: "installer_login", metadata: { ...((ref.metadata || {}) as any), inferred: true } });
+        }
+      }
+    });
+
+    return [...enriched, ...synthetic];
   }, [events]);
 
   // ── Handle stage click ─────────────────────────────────────────
