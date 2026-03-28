@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 // ── Funnel config ──────────────────────────────────────────────
 const STAGES = [
@@ -627,6 +628,11 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Automações */}
+        <div className="bg-gray-900/50 rounded-2xl p-6 border border-gray-800">
+          <AutomationPanel />
+        </div>
+
         {/* Users table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-800/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
@@ -770,6 +776,7 @@ export default function Dashboard() {
                           <p className="text-sm text-emerald-400">✅ Instalou em: {user.installed_versions}</p>
                         )}
                         <p className="text-xs text-gray-500">Criado: {formatDate(user.created_at)}</p>
+                        {user.email && <UserActionsList email={user.email} />}
                       </div>
                       <button
                         onClick={() => handleDeleteUser(user.email, user.user_id)}
