@@ -17,6 +17,19 @@ const STAGES = [
 
 type StageKey = (typeof STAGES)[number]["key"];
 
+// Onboarding sub-stages for detailed funnel view
+const ONBOARDING_SUBSTAGES = [
+  { key: "onboarding_started", label: "Iniciou", icon: "🚀" },
+  { key: "onboarding_step_intent", label: "Escolheu Jornada", icon: "🎯" },
+  { key: "onboarding_step_experience", label: "Experimentou", icon: "✨" },
+  { key: "onboarding_step_how_to_use", label: "Plugin/Web", icon: "🧩" },
+  { key: "onboarding_step_plans", label: "Viu Planos", icon: "💳" },
+  { key: "onboarding_checkout_started", label: "Iniciou Checkout", icon: "🛒" },
+  { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓" },
+  { key: "onboarding_step_install", label: "Instalar", icon: "⬇️" },
+  { key: "onboarding_completed", label: "Completou", icon: "✅" },
+] as const;
+
 const STAGE_COLORS = [
   "#6366f1", "#8b5cf6", "#a78bfa", "#c084fc", "#d946ef", "#ec4899", "#10b981",
 ];
@@ -308,6 +321,26 @@ export default function Dashboard() {
 
   const maxCount = Math.max(1, ...stageCounts.map((s) => s.count));
 
+  // Onboarding sub-funnel counts
+  const onboardingSubCounts = useMemo(() => {
+    const userStages = new Map<string, Set<string>>();
+    for (const ev of mergedEvents) {
+      const key = ev.email || ev.user_id;
+      if (!key) continue;
+      if (!userStages.has(key)) userStages.set(key, new Set());
+      userStages.get(key)!.add(ev.event);
+    }
+    return ONBOARDING_SUBSTAGES.map((s) => {
+      let count = 0;
+      userStages.forEach((stages) => {
+        if (stages.has(s.key)) count++;
+      });
+      return { ...s, count };
+    });
+  }, [events]);
+
+  const maxOnboardingCount = Math.max(1, ...onboardingSubCounts.map((s) => s.count));
+
   const users = useMemo(() => {
     const map = new Map<string, UserRow>();
     for (const ev of mergedEvents) {
@@ -580,6 +613,58 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Onboarding sub-funnel */}
+        {onboardingSubCounts.some(s => s.count > 0) && (
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 space-y-4 border border-gray-800/50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">🎯 Detalhe do Onboarding</h2>
+            <span className="text-xs text-gray-500">Onde os usuários param no onboarding?</span>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
+            {onboardingSubCounts.map((sub, i) => {
+              const prevCount = i > 0 ? onboardingSubCounts[i - 1].count : sub.count;
+              const dropPct = prevCount > 0 && i > 0 ? Math.round(((prevCount - sub.count) / prevCount) * 100) : 0;
+              return (
+                <div key={sub.key} className="text-center space-y-1">
+                  <div className="text-2xl">{sub.icon}</div>
+                  <p className="text-2xl font-bold tabular-nums">{sub.count}</p>
+                  <p className="text-[10px] text-gray-400 leading-tight">{sub.label}</p>
+                  {i > 0 && dropPct > 0 && (
+                    <p className="text-[10px] text-red-400">-{dropPct}%</p>
+                  )}
+                  {i > 0 && dropPct === 0 && sub.count > 0 && (
+                    <p className="text-[10px] text-green-400">100%</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Mini funnel bars */}
+          <div className="space-y-1.5 mt-4">
+            {onboardingSubCounts.map((sub, i) => {
+              const widthPct = (sub.count / maxOnboardingCount) * 100;
+              return (
+                <div key={sub.key} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400 w-36 truncate flex items-center gap-1">
+                    {sub.icon} {sub.label}
+                  </span>
+                  <div className="flex-1 h-6 bg-gray-800/40 rounded-md overflow-hidden">
+                    <div
+                      className="h-full rounded-md transition-all duration-500"
+                      style={{
+                        width: `${Math.max(widthPct, 1)}%`,
+                        backgroundColor: `hsl(${260 - i * 20}, 70%, ${55 + i * 3}%)`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium tabular-nums w-10 text-right">{sub.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        )}
+
         {/* Stage-to-stage conversion table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-800/50">
           <h2 className="text-lg font-semibold mb-4">Conversão entre Etapas</h2>
@@ -775,6 +860,31 @@ export default function Dashboard() {
                         {user.installed_versions && (
                           <p className="text-sm text-emerald-400">✅ Instalou em: {user.installed_versions}</p>
                         )}
+                        {/* Onboarding progress */}
+                        {(() => {
+                          const userEvents = mergedEvents.filter(e => (e.email || e.user_id) === user.email || (e.email || e.user_id) === user.user_id);
+                          const userEventSet = new Set(userEvents.map(e => e.event));
+                          const onbSteps = ONBOARDING_SUBSTAGES.filter(s => userEventSet.has(s.key));
+                          if (onbSteps.length > 0) {
+                            const lastStep = onbSteps[onbSteps.length - 1];
+                            return (
+                              <div className="flex items-center gap-1 mt-1">
+                                <span className="text-xs text-gray-500">Onboarding:</span>
+                                {ONBOARDING_SUBSTAGES.map((s, i) => (
+                                  <span
+                                    key={s.key}
+                                    title={s.label}
+                                    className={`text-sm ${userEventSet.has(s.key) ? "" : "opacity-20 grayscale"}`}
+                                  >
+                                    {s.icon}
+                                  </span>
+                                ))}
+                                <span className="text-[10px] text-gray-400 ml-1">Parou em: {lastStep.label}</span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <p className="text-xs text-gray-500">Criado: {formatDate(user.created_at)}</p>
                         {user.email && <UserActionsList email={user.email} />}
                       </div>
