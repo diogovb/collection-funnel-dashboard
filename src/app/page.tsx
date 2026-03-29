@@ -19,15 +19,16 @@ type StageKey = (typeof STAGES)[number]["key"];
 
 // Onboarding sub-stages for detailed funnel view
 const ONBOARDING_SUBSTAGES = [
-  { key: "onboarding_started", label: "Iniciou", icon: "🚀" },
-  { key: "onboarding_step_intent", label: "Escolheu Jornada", icon: "🎯" },
-  { key: "onboarding_step_experience", label: "Experimentou", icon: "✨" },
+  { key: "onboarding_started", label: "Nome", icon: "📝" },
+  { key: "onboarding_step_welcome", label: "Boas-vindas", icon: "👋" },
+  { key: "onboarding_step_intent", label: "Jornada", icon: "🎯" },
+  { key: "onboarding_step_experience", label: "Experiência", icon: "✨" },
+  { key: "signup_completed", label: "Conta", icon: "🔑" },
   { key: "onboarding_step_how_to_use", label: "Plugin/Web", icon: "🧩" },
-  { key: "onboarding_step_plans", label: "Viu Planos", icon: "💳" },
-  { key: "onboarding_checkout_started", label: "Iniciou Checkout", icon: "🛒" },
+  { key: "onboarding_step_plans", label: "Planos", icon: "💳" },
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓" },
   { key: "onboarding_step_install", label: "Instalar", icon: "⬇️" },
-  { key: "onboarding_completed", label: "Completou", icon: "✅" },
+  { key: "onboarding_completed", label: "Completo", icon: "✅" },
 ] as const;
 
 const STAGE_COLORS = [
