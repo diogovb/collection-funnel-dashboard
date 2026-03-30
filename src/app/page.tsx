@@ -17,6 +17,9 @@ const STEPS = [
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
   { key: "onboarding_step_install", label: "Acesso", icon: "🚀", fields: ["method"] },
   { key: "onboarding_completed", label: "Completo", icon: "✅", fields: [] },
+  { key: "installer_login", label: "Login Instalador", icon: "🔐", fields: [] },
+  { key: "plugin_installed", label: "Plugin Instalado", icon: "🔌", fields: [] },
+  { key: "first_download", label: "1º Download", icon: "📥", fields: [] },
 ] as const;
 
 type StepKey = (typeof STEPS)[number]["key"];
