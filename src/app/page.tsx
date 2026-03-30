@@ -395,22 +395,35 @@ export default function Dashboard() {
       professions.set(profession, (professions.get(profession) || 0) + 1);
     });
     
-    // Projetos/mês
-    const projects = new Map<string, number>();
-    signupEvents.forEach(event => {
-      const projectsPerMonth = (event.metadata as any)?.projects_per_month || "Não informado";
-      projects.set(projectsPerMonth, (projects.get(projectsPerMonth) || 0) + 1);
+    // Planos comprados (from checkout_completed events)
+    const checkoutEvents = events.filter(e => e.event === "checkout_completed");
+    const plans = new Map<string, number>();
+    const PLAN_LABELS: Record<string, string> = {
+      "free": "Teste Grátis",
+    };
+    checkoutEvents.forEach(event => {
+      const rawPlan = (event.metadata as any)?.plan || "Não informado";
+      // Plan string can be "premium_anual_pix" or "básico_mensal_stripe_sub123" etc.
+      const planName = rawPlan.split("_")[0];
+      const label = PLAN_LABELS[planName] || planName.charAt(0).toUpperCase() + planName.slice(1);
+      plans.set(label, (plans.get(label) || 0) + 1);
     });
+    // Also count skipped (free) users
+    const skippedEvents = events.filter(e => e.event === "onboarding_offer_skipped");
+    if (skippedEvents.length > 0) {
+      plans.set("Teste Grátis", (plans.get("Teste Grátis") || 0) + skippedEvents.length);
+    }
     
-    // Software (array)
-    const software = new Map<string, number>();
-    signupEvents.forEach(event => {
-      const softwareList = (event.metadata as any)?.software || [];
-      if (Array.isArray(softwareList)) {
-        softwareList.forEach((sw: string) => {
-          software.set(sw, (software.get(sw) || 0) + 1);
-        });
-      }
+    // Método de uso (plugin vs web)
+    const methods = new Map<string, number>();
+    const METHOD_LABELS: Record<string, string> = {
+      "plugin": "Plugin SketchUp",
+      "web": "Biblioteca Web",
+    };
+    const methodEvents = events.filter(e => e.event === "onboarding_method_selected");
+    methodEvents.forEach(event => {
+      const method = METHOD_LABELS[(event.metadata as any)?.method] || (event.metadata as any)?.method || "Não informado";
+      methods.set(method, (methods.get(method) || 0) + 1);
     });
     
     // Intent/Jornada
@@ -428,8 +441,8 @@ export default function Dashboard() {
     
     return {
       professions: Array.from(professions.entries()).sort((a, b) => b[1] - a[1]),
-      projects: Array.from(projects.entries()).sort((a, b) => b[1] - a[1]),
-      software: Array.from(software.entries()).sort((a, b) => b[1] - a[1]),
+      plans: Array.from(plans.entries()).sort((a, b) => b[1] - a[1]),
+      methods: Array.from(methods.entries()).sort((a, b) => b[1] - a[1]),
       intents: Array.from(intents.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [events]);
@@ -550,8 +563,8 @@ export default function Dashboard() {
         {/* Analytics pie charts */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <PieCard title="Profissão" data={analyticsData.professions.slice(0, 5)} />
-          <PieCard title="Projetos/mês" data={analyticsData.projects.slice(0, 5)} />
-          <PieCard title="Software" data={analyticsData.software.slice(0, 5)} />
+          <PieCard title="Planos" data={analyticsData.plans.slice(0, 5)} />
+          <PieCard title="Método" data={analyticsData.methods.slice(0, 5)} />
           <PieCard title="Jornada" data={analyticsData.intents.slice(0, 5)} />
         </div>
 
