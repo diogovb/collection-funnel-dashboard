@@ -66,6 +66,7 @@ interface UserJourney {
   intent: string;
   method: string;
   plan: string;
+  platform: string;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -183,7 +184,7 @@ export default function Dashboard() {
       if (!map.has(key)) {
         map.set(key, {
           key,
-          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "",
+          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "", platform: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -203,6 +204,7 @@ export default function Dashboard() {
       if (m.intent && !j.intent) j.intent = m.intent;
       if (m.method && !j.method && ev.event === "onboarding_method_selected") j.method = m.method;
       if (m.plan && !j.plan) j.plan = m.plan;
+      if (m.platform && !j.platform) j.platform = m.platform;
 
       // Track steps
       if (STEPS.some(s => s.key === ev.event)) {
@@ -248,6 +250,7 @@ export default function Dashboard() {
     const intents = new Map<string, number>();
     const methods = new Map<string, number>();
     const plans = new Map<string, number>();
+    const platforms = new Map<string, number>();
 
     for (const j of journeys) {
       if (j.profession) {
@@ -267,6 +270,10 @@ export default function Dashboard() {
         const label = planName.charAt(0).toUpperCase() + planName.slice(1);
         plans.set(label, (plans.get(label) || 0) + 1);
       }
+      if (j.platform) {
+        const label = j.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop";
+        platforms.set(label, (platforms.get(label) || 0) + 1);
+      }
     }
 
     return {
@@ -274,6 +281,7 @@ export default function Dashboard() {
       intents: Array.from(intents.entries()).sort((a, b) => b[1] - a[1]),
       methods: Array.from(methods.entries()).sort((a, b) => b[1] - a[1]),
       plans: Array.from(plans.entries()).sort((a, b) => b[1] - a[1]),
+      platforms: Array.from(platforms.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [journeys]);
 
@@ -377,6 +385,7 @@ export default function Dashboard() {
           <PieCard title="Jornada" data={analytics.intents.slice(0, 5)} />
           <PieCard title="Método" data={analytics.methods.slice(0, 5)} />
           <PieCard title="Plano" data={analytics.plans.slice(0, 5)} />
+          <PieCard title="Plataforma" data={analytics.platforms.slice(0, 5)} />
         </div>
 
         {/* ── MAIN FUNNEL: Step-by-step onboarding ──────────────── */}
@@ -493,6 +502,11 @@ export default function Dashboard() {
                     Parou em: <span className="text-gray-400">{j.lastStepLabel || "—"}</span>
                   </span>
                   <div className="flex items-center gap-1.5">
+                    {j.platform && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${j.platform === "mobile" ? "bg-orange-500/20 text-orange-300" : "bg-gray-500/20 text-gray-300"}`}>
+                        {j.platform === "mobile" ? "📱" : "🖥️"}
+                      </span>
+                    )}
                     {j.method && (
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${j.method === "plugin" ? "bg-blue-500/20 text-blue-300" : "bg-emerald-500/20 text-emerald-300"}`}>
                         {j.method === "plugin" ? "🔌 Plugin" : "🌐 Web"}
@@ -559,6 +573,7 @@ export default function Dashboard() {
                 {selectedUser.intent && <InfoPill label="Jornada" value={INTENT_LABELS[selectedUser.intent] || selectedUser.intent} />}
                 {selectedUser.method && <InfoPill label="Método" value={selectedUser.method === "plugin" ? "Plugin SketchUp" : "Biblioteca Web"} />}
                 {selectedUser.plan && <InfoPill label="Plano" value={selectedUser.plan} />}
+                {selectedUser.platform && <InfoPill label="Plataforma" value={selectedUser.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop"} />}
               </div>
 
               {/* Journey timeline */}
