@@ -7,10 +7,9 @@ import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 // ── Funnel config ──────────────────────────────────────────────
 const STAGES = [
   { key: "signup_completed", label: "Cadastro" },
-  { key: "email_confirmed", label: "Email Confirmado" },
-  { key: "onboarding_started", label: "Onboarding Iniciado" },
   { key: "onboarding_completed", label: "Onboarding Completo" },
-  { key: "installer_login", label: "Login no Instalador" },
+  { key: "checkout_completed", label: "Pagamento" },
+  { key: "installer_login", label: "Login Instalador" },
   { key: "plugin_installed", label: "Plugin Instalado" },
   { key: "first_download", label: "Primeiro Download" },
 ] as const;
@@ -32,7 +31,7 @@ const ONBOARDING_SUBSTAGES = [
 ] as const;
 
 const STAGE_COLORS = [
-  "#6366f1", "#8b5cf6", "#a78bfa", "#c084fc", "#d946ef", "#ec4899", "#10b981",
+  "#6366f1", "#8b5cf6", "#a78bfa", "#d946ef", "#ec4899", "#10b981",
 ];
 
 // Pie chart colors for analytics cards
@@ -64,6 +63,7 @@ interface StageUser {
   name?: string;
   phone?: string;
   profession?: string;
+  intent?: string;
   software?: string[];
   projects_per_month?: string;
   interests?: string[];
@@ -246,6 +246,7 @@ export default function Dashboard() {
           name: metadata?.name || "",
           phone: metadata?.phone || "",
           profession: metadata?.profession || "",
+          intent: metadata?.intent || "",
           software: metadata?.software || [],
           projects_per_month: metadata?.projects_per_month || "",
           interests: metadata?.interests || [],
@@ -378,10 +379,19 @@ export default function Dashboard() {
   const analyticsData = useMemo(() => {
     const signupEvents = events.filter(e => e.event === "signup_completed");
     
+    const PROFESSION_LABELS: Record<string, string> = {
+      "arquiteto": "Arquiteto(a)",
+      "designer_interiores": "Designer de Interiores",
+      "engenheiro": "Engenheiro(a)",
+      "projetista": "Projetista",
+      "estudante": "Estudante",
+      "outro": "Outro",
+    };
+    
     // Profissão
     const professions = new Map<string, number>();
     signupEvents.forEach(event => {
-      const profession = (event.metadata as any)?.profession || "Não informado";
+      const profession = PROFESSION_LABELS[(event.metadata as any)?.profession] || (event.metadata as any)?.profession || "Não informado";
       professions.set(profession, (professions.get(profession) || 0) + 1);
     });
     
@@ -403,22 +413,24 @@ export default function Dashboard() {
       }
     });
     
-    // O que trouxe (interests array)
-    const interests = new Map<string, number>();
+    // Intent/Jornada
+    const intents = new Map<string, number>();
+    const INTENT_LABELS: Record<string, string> = {
+      "biblioteca": "Blocos 3D",
+      "render": "Render IA",
+      "apresentacao": "Apresentações",
+      "explorar": "Explorar tudo",
+    };
     signupEvents.forEach(event => {
-      const interestsList = (event.metadata as any)?.interests || [];
-      if (Array.isArray(interestsList)) {
-        interestsList.forEach((interest: string) => {
-          interests.set(interest, (interests.get(interest) || 0) + 1);
-        });
-      }
+      const intent = INTENT_LABELS[(event.metadata as any)?.intent] || (event.metadata as any)?.intent || "Não informado";
+      intents.set(intent, (intents.get(intent) || 0) + 1);
     });
     
     return {
       professions: Array.from(professions.entries()).sort((a, b) => b[1] - a[1]),
       projects: Array.from(projects.entries()).sort((a, b) => b[1] - a[1]),
       software: Array.from(software.entries()).sort((a, b) => b[1] - a[1]),
-      interests: Array.from(interests.entries()).sort((a, b) => b[1] - a[1]),
+      intents: Array.from(intents.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [events]);
 
@@ -540,7 +552,7 @@ export default function Dashboard() {
           <PieCard title="Profissão" data={analyticsData.professions.slice(0, 5)} />
           <PieCard title="Projetos/mês" data={analyticsData.projects.slice(0, 5)} />
           <PieCard title="Software" data={analyticsData.software.slice(0, 5)} />
-          <PieCard title="O que trouxe" data={analyticsData.interests.slice(0, 5)} />
+          <PieCard title="Jornada" data={analyticsData.intents.slice(0, 5)} />
         </div>
 
         {/* Funnel visualization */}
@@ -886,7 +898,10 @@ export default function Dashboard() {
                         {user.projects_per_month && (
                           <p className="text-sm text-gray-400">Projetos/mês: {user.projects_per_month}</p>
                         )}
-                        {user.interests && (
+                        {user.intent && (
+                          <p className="text-sm text-gray-400">Jornada: {user.intent}</p>
+                        )}
+                        {!user.intent && user.interests && (
                           <p className="text-sm text-gray-400">Interesses: {user.interests.join(", ")}</p>
                         )}
                         {user.sketchup_versions && (
