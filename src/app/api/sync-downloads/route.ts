@@ -30,25 +30,23 @@ async function queryMetabase(sql: string): Promise<any[]> {
 
 export async function GET() {
   try {
-    // 1. Get ALL emails that signed up but do NOT have first_download yet
-    const { data: signedUp } = await supabaseAdmin
+    // 1. Get ALL unique emails in funnel that do NOT have first_download yet
+    const { data: allEvents } = await supabaseAdmin
       .from("funnel_events")
-      .select("email")
-      .eq("event", "signup_completed")
+      .select("email, event")
       .not("email", "is", null);
 
-    const { data: downloaded } = await supabaseAdmin
-      .from("funnel_events")
-      .select("email")
-      .eq("event", "first_download");
-
-    if (!signedUp || signedUp.length === 0) {
-      return NextResponse.json({ synced: 0, message: "Nenhum signup_completed com email" });
+    if (!allEvents || allEvents.length === 0) {
+      return NextResponse.json({ synced: 0, message: "Nenhum evento com email" });
     }
 
-    const downloadedEmails = new Set((downloaded || []).map((d) => d.email));
-    const toCheck = [...new Set(signedUp.map((i) => i.email))]
-      .filter((email): email is string => !!email && !downloadedEmails.has(email));
+    const downloadedEmails = new Set<string>();
+    const allEmails = new Set<string>();
+    for (const ev of allEvents) {
+      if (ev.email) allEmails.add(ev.email);
+      if (ev.event === "first_download" && ev.email) downloadedEmails.add(ev.email);
+    }
+    const toCheck = [...allEmails].filter(email => !downloadedEmails.has(email));
 
     if (toCheck.length === 0) {
       return NextResponse.json({ synced: 0, message: "Todos já sincronizados" });
