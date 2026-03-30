@@ -60,7 +60,8 @@ export async function GET() {
     const rows = await queryMetabase(
       `SELECT DISTINCT u.email
        FROM product_download pd
-       JOIN "user" u ON u.id = pd."userId"
+       JOIN user_on_office uoo ON uoo.id = pd."userOnOfficeId"
+       JOIN "user" u ON u.id = uoo."userId"
        WHERE u.email IN (${emailList})
        LIMIT 100`
     );
