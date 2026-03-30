@@ -5,20 +5,31 @@ import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 // ── Onboarding Steps (the ONLY funnel now) ─────────────────────
-// Linear funnel steps (shared by all users)
-const STEPS = [
+// Pre-split steps (shared by all users)
+const PRE_SPLIT_STEPS = [
   { key: "onboarding_started", label: "Nome", icon: "📝", fields: ["name", "profession"] },
   { key: "onboarding_step_welcome", label: "Boas-vindas", icon: "👋", fields: [] },
   { key: "onboarding_step_intent", label: "Jornada", icon: "🎯", fields: ["intent"] },
   { key: "onboarding_step_experience", label: "Experiência", icon: "✨", fields: ["intent"] },
   { key: "signup_completed", label: "Cadastro", icon: "🔑", fields: ["email", "phone"] },
   { key: "onboarding_method_selected", label: "Método", icon: "🧩", fields: ["method"] },
+] as const;
+
+// Split: Plans + Payment (two branches: free vs paid)
+const PLAN_STEPS = [
   { key: "onboarding_step_plans", label: "Planos", icon: "💳", fields: ["plan"] },
   { key: "checkout_completed", label: "Pagamento", icon: "💰", fields: ["plan"] },
+] as const;
+
+// Post-split steps (shared again)
+const POST_SPLIT_STEPS = [
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
   { key: "onboarding_step_install", label: "Acesso", icon: "🚀", fields: ["method"] },
   { key: "onboarding_completed", label: "Completo", icon: "✅", fields: [] },
 ] as const;
+
+// Combined for backwards compat
+const STEPS = [...PRE_SPLIT_STEPS, ...PLAN_STEPS, ...POST_SPLIT_STEPS] as const;
 
 // Plugin-only sub-steps (right branch)
 const PLUGIN_STEPS = [
@@ -80,7 +91,10 @@ interface UserJourney {
   profession: string;
   intent: string;
   method: string;
-  plan: string;
+  plan: string; // raw: "premium_anual_pix"
+  planName: string; // "premium", "basico", "expert", "teste"
+  period: string; // "anual", "mensal", ""
+  paymentMethod: string; // "pix", "cartao", ""
   platform: string;
   stepsCompleted: Set<string>;
   lastStep: string;
@@ -199,7 +213,7 @@ export default function Dashboard() {
       if (!map.has(key)) {
         map.set(key, {
           key,
-          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "", platform: "",
+          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "", planName: "", period: "", paymentMethod: "", platform: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -219,7 +233,20 @@ export default function Dashboard() {
       if (m.intent && !j.intent) j.intent = m.intent;
       if (m.method && !j.method && ev.event === "onboarding_method_selected") j.method = m.method;
       // Plan comes from checkout_completed (actual payment) or onboarding_offer_skipped, not abandoned
-      if (m.plan && (ev.event === "checkout_completed" || ev.event === "onboarding_offer_skipped")) j.plan = m.plan;
+      if (m.plan && (ev.event === "checkout_completed" || ev.event === "onboarding_offer_skipped")) {
+        j.plan = m.plan;
+        // New enriched fields (if present)
+        if (m.plan_name) j.planName = m.plan_name;
+        if (m.period) j.period = m.period;
+        if (m.payment_method) j.paymentMethod = m.payment_method;
+        // Fallback: parse from plan string "premium_anual_pix"
+        if (!j.planName && m.plan) {
+          const parts = (m.plan as string).split("_");
+          j.planName = parts[0] || "";
+          j.period = parts[1] === "anual" ? "anual" : parts[1] === "mensal" ? "mensal" : "";
+          j.paymentMethod = (m.plan as string).includes("_pix") ? "pix" : (m.plan as string).includes("_stripe") ? "cartao" : m.plan === "teste_gratis" ? "" : "cartao";
+        }
+      }
       if (m.platform && !j.platform) j.platform = m.platform;
 
       // Track steps
@@ -262,6 +289,10 @@ export default function Dashboard() {
   const splitCounts = useMemo(() => {
     const webUsers = journeys.filter(j => j.method === "web");
     const pluginUsers = journeys.filter(j => j.method === "plugin");
+    // Plan split: free vs paid
+    const sawPlans = journeys.filter(j => j.stepsCompleted.has("onboarding_step_plans"));
+    const paid = journeys.filter(j => j.stepsCompleted.has("checkout_completed") && j.planName !== "teste");
+    const free = journeys.filter(j => j.stepsCompleted.has("checkout_completed") && j.planName === "teste");
     return {
       web: { total: webUsers.length, firstDownload: webUsers.filter(j => j.stepsCompleted.has("first_download")).length },
       plugin: {
@@ -271,6 +302,7 @@ export default function Dashboard() {
         firstDownload: pluginUsers.filter(j => j.stepsCompleted.has("first_download")).length,
       },
       converge: { firstDownload: journeys.filter(j => j.stepsCompleted.has("first_download")).length },
+      plans: { sawPlans: sawPlans.length, paid: paid.length, free: free.length },
     };
   }, [journeys]);
 
@@ -282,6 +314,8 @@ export default function Dashboard() {
     const intents = new Map<string, number>();
     const methods = new Map<string, number>();
     const plans = new Map<string, number>();
+    const periods = new Map<string, number>();
+    const payMethods = new Map<string, number>();
     const platforms = new Map<string, number>();
 
     for (const j of journeys) {
@@ -298,9 +332,17 @@ export default function Dashboard() {
         methods.set(label, (methods.get(label) || 0) + 1);
       }
       if (j.plan) {
-        const planName = j.plan.split("_")[0];
-        const label = planName.charAt(0).toUpperCase() + planName.slice(1);
+        const pn = j.planName || j.plan.split("_")[0];
+        const label = pn.charAt(0).toUpperCase() + pn.slice(1);
         plans.set(label, (plans.get(label) || 0) + 1);
+      }
+      if (j.period) {
+        const label = j.period === "anual" ? "Anual" : "Mensal";
+        periods.set(label, (periods.get(label) || 0) + 1);
+      }
+      if (j.paymentMethod) {
+        const label = j.paymentMethod === "pix" ? "PIX" : "Cartão";
+        payMethods.set(label, (payMethods.get(label) || 0) + 1);
       }
       if (j.platform) {
         const label = j.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop";
@@ -313,6 +355,8 @@ export default function Dashboard() {
       intents: Array.from(intents.entries()).sort((a, b) => b[1] - a[1]),
       methods: Array.from(methods.entries()).sort((a, b) => b[1] - a[1]),
       plans: Array.from(plans.entries()).sort((a, b) => b[1] - a[1]),
+      periods: Array.from(periods.entries()).sort((a, b) => b[1] - a[1]),
+      payMethods: Array.from(payMethods.entries()).sort((a, b) => b[1] - a[1]),
       platforms: Array.from(platforms.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [journeys]);
@@ -417,6 +461,8 @@ export default function Dashboard() {
           <PieCard title="Jornada" data={analytics.intents.slice(0, 5)} />
           <PieCard title="Método" data={analytics.methods.slice(0, 5)} />
           <PieCard title="Plano" data={analytics.plans.slice(0, 5)} />
+          <PieCard title="Período" data={analytics.periods.slice(0, 5)} />
+          <PieCard title="Pagamento" data={analytics.payMethods.slice(0, 5)} />
           <PieCard title="Plataforma" data={analytics.platforms.slice(0, 5)} />
         </div>
 
@@ -428,11 +474,11 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-2">
-            {stepCounts.map((step, i) => {
+            {/* Pre-split linear steps */}
+            {stepCounts.filter(s => PRE_SPLIT_STEPS.some(ps => ps.key === s.key)).map((step, i) => {
               const widthPct = (step.count / maxCount) * 100;
               const prevCount = i > 0 ? stepCounts[i - 1].count : step.count;
               const dropPct = i > 0 && prevCount > 0 ? Math.round(((prevCount - step.count) / prevCount) * 100) : 0;
-
               return (
                 <div key={step.key} className="group">
                   <div className="flex items-center justify-between mb-1">
@@ -442,28 +488,109 @@ export default function Dashboard() {
                       <span className="text-sm sm:text-lg font-bold tabular-nums">{step.count}</span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
-                      {i > 0 && dropPct > 0 && (
-                        <span className="text-red-400">-{dropPct}%</span>
-                      )}
-                      {i > 0 && dropPct === 0 && step.count > 0 && (
-                        <span className="text-green-400">100%</span>
-                      )}
-                      {i > 0 && (
-                        <span className="text-gray-500 hidden sm:inline">
-                          {pct(step.count, stepCounts[0].count)} do início
-                        </span>
-                      )}
+                      {i > 0 && dropPct > 0 && <span className="text-red-400">-{dropPct}%</span>}
+                      {i > 0 && dropPct === 0 && step.count > 0 && <span className="text-green-400">100%</span>}
+                      {i > 0 && <span className="text-gray-500 hidden sm:inline">{pct(step.count, stepCounts[0].count)} do início</span>}
                     </div>
                   </div>
-                  <div
-                    className="h-8 sm:h-9 bg-gray-800/50 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-800/70 transition-all"
-                    onClick={() => setSelectedStep(step.key)}
-                    title={`Clique para ver usuários em ${step.label}`}
-                  >
-                    <div
-                      className="h-full rounded-lg transition-all duration-700 ease-out"
-                      style={{ width: `${Math.max(widthPct, 2)}%`, backgroundColor: STEP_COLORS[i] }}
-                    />
+                  <div className="h-8 sm:h-9 bg-gray-800/50 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-800/70 transition-all"
+                    onClick={() => setSelectedStep(step.key)} title={`Clique para ver usuários em ${step.label}`}>
+                    <div className="h-full rounded-lg transition-all duration-700 ease-out"
+                      style={{ width: `${Math.max(widthPct, 2)}%`, backgroundColor: STEP_COLORS[i] }} />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* ── SPLIT: Teste Grátis vs Pagou ──────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-3">
+              {/* Free path */}
+              <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 space-y-3 cursor-pointer hover:bg-amber-500/10 transition-all"
+                onClick={() => setSelectedStep("checkout_completed")}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🆓</span>
+                    <span className="font-medium text-sm text-amber-300">Teste Grátis</span>
+                  </div>
+                  <span className="text-lg font-bold text-amber-300">{splitCounts.plans.free}</span>
+                </div>
+                <div className="h-6 bg-gray-800/50 rounded-lg overflow-hidden">
+                  <div className="h-full bg-amber-500/40 rounded-lg transition-all duration-700"
+                    style={{ width: `${splitCounts.plans.sawPlans > 0 ? Math.max((splitCounts.plans.free / splitCounts.plans.sawPlans) * 100, 2) : 0}%` }} />
+                </div>
+                <p className="text-[10px] text-gray-500">
+                  {splitCounts.plans.sawPlans > 0 ? pct(splitCounts.plans.free, splitCounts.plans.sawPlans) : "0%"} dos que viram planos
+                </p>
+              </div>
+
+              {/* Paid path */}
+              <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4 space-y-3 cursor-pointer hover:bg-green-500/10 transition-all"
+                onClick={() => setSelectedStep("checkout_completed")}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">💰</span>
+                    <span className="font-medium text-sm text-green-300">Pagaram</span>
+                  </div>
+                  <span className="text-lg font-bold text-green-300">{splitCounts.plans.paid}</span>
+                </div>
+                {splitCounts.plans.paid > 0 && (
+                  <div className="space-y-1.5">
+                    {analytics.plans.filter(([label]) => label !== "Teste").map(([label, count]) => (
+                      <div key={label} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">{label}</span>
+                        <span className="font-bold">{count}</span>
+                      </div>
+                    ))}
+                    {analytics.periods.length > 0 && (
+                      <div className="flex gap-2 pt-1 border-t border-gray-800/30">
+                        {analytics.periods.map(([label, count]) => (
+                          <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "Anual" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>
+                            {label} {count}
+                          </span>
+                        ))}
+                        {analytics.payMethods.map(([label, count]) => (
+                          <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "PIX" ? "bg-emerald-500/20 text-emerald-300" : "bg-orange-500/20 text-orange-300"}`}>
+                            {label} {count}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="h-6 bg-gray-800/50 rounded-lg overflow-hidden">
+                  <div className="h-full bg-green-500/40 rounded-lg transition-all duration-700"
+                    style={{ width: `${splitCounts.plans.sawPlans > 0 ? Math.max((splitCounts.plans.paid / splitCounts.plans.sawPlans) * 100, 2) : 0}%` }} />
+                </div>
+                <p className="text-[10px] text-gray-500">
+                  {splitCounts.plans.sawPlans > 0 ? pct(splitCounts.plans.paid, splitCounts.plans.sawPlans) : "0%"} dos que viram planos
+                </p>
+              </div>
+            </div>
+
+            {/* Post-split linear steps */}
+            {stepCounts.filter(s => POST_SPLIT_STEPS.some(ps => ps.key === s.key)).map((step) => {
+              const globalIdx = stepCounts.findIndex(sc => sc.key === step.key);
+              const widthPct = (step.count / maxCount) * 100;
+              const prevCount = globalIdx > 0 ? stepCounts[globalIdx - 1].count : step.count;
+              const dropPct = globalIdx > 0 && prevCount > 0 ? Math.round(((prevCount - step.count) / prevCount) * 100) : 0;
+              return (
+                <div key={step.key} className="group">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{step.icon}</span>
+                      <span className="text-xs sm:text-sm font-medium text-gray-300">{step.label}</span>
+                      <span className="text-sm sm:text-lg font-bold tabular-nums">{step.count}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      {dropPct > 0 && <span className="text-red-400">-{dropPct}%</span>}
+                      {dropPct === 0 && step.count > 0 && <span className="text-green-400">100%</span>}
+                      <span className="text-gray-500 hidden sm:inline">{pct(step.count, stepCounts[0].count)} do início</span>
+                    </div>
+                  </div>
+                  <div className="h-8 sm:h-9 bg-gray-800/50 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-800/70 transition-all"
+                    onClick={() => setSelectedStep(step.key)} title={`Clique para ver usuários em ${step.label}`}>
+                    <div className="h-full rounded-lg transition-all duration-700 ease-out"
+                      style={{ width: `${Math.max(widthPct, 2)}%`, backgroundColor: STEP_COLORS[globalIdx] || STEP_COLORS[STEP_COLORS.length - 1] }} />
                   </div>
                 </div>
               );
@@ -593,8 +720,10 @@ export default function Dashboard() {
                         </span>
                       )}
                       {j.plan && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300">
-                          💰 {j.plan.split("_")[0]}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${j.planName === "teste" ? "bg-amber-500/20 text-amber-300" : "bg-green-500/20 text-green-300"}`}>
+                          {j.planName === "teste" ? "🆓 Grátis" : `💰 ${(j.planName || j.plan.split("_")[0]).charAt(0).toUpperCase() + (j.planName || j.plan.split("_")[0]).slice(1)}`}
+                          {j.period && ` · ${j.period === "anual" ? "Anual" : "Mensal"}`}
+                          {j.paymentMethod && ` · ${j.paymentMethod === "pix" ? "PIX" : "Cartão"}`}
                         </span>
                       )}
                     </div>
@@ -683,7 +812,7 @@ export default function Dashboard() {
                 {selectedUser.profession && <InfoPill label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession} />}
                 {selectedUser.intent && <InfoPill label="Jornada" value={INTENT_LABELS[selectedUser.intent] || selectedUser.intent} />}
                 {selectedUser.method && <InfoPill label="Método" value={selectedUser.method === "plugin" ? "Plugin SketchUp" : "Biblioteca Web"} />}
-                {selectedUser.plan && <InfoPill label="Plano" value={selectedUser.plan} />}
+                {selectedUser.plan && <InfoPill label="Plano" value={selectedUser.planName === "teste" ? "Teste Grátis" : `${(selectedUser.planName || selectedUser.plan.split("_")[0]).charAt(0).toUpperCase() + (selectedUser.planName || selectedUser.plan.split("_")[0]).slice(1)}${selectedUser.period ? ` · ${selectedUser.period === "anual" ? "Anual" : "Mensal"}` : ""}${selectedUser.paymentMethod ? ` · ${selectedUser.paymentMethod === "pix" ? "PIX" : "Cartão"}` : ""}`} />}
                 {selectedUser.platform && <InfoPill label="Plataforma" value={selectedUser.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop"} />}
               </div>
 
