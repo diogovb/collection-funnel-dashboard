@@ -97,6 +97,7 @@ interface UserJourney {
   period: string; // "anual", "mensal", ""
   paymentMethod: string; // "pix", "cartao", ""
   platform: string;
+  signupMethod: string; // "google" | "email" | ""
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -214,7 +215,7 @@ export default function Dashboard() {
       if (!map.has(key)) {
         map.set(key, {
           key,
-          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "", planName: "", period: "", paymentMethod: "", platform: "",
+          name: "", email: "", phone: "", profession: "", intent: "", method: "", plan: "", planName: "", period: "", paymentMethod: "", platform: "", signupMethod: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -233,6 +234,7 @@ export default function Dashboard() {
       if (m.profession && !j.profession) j.profession = m.profession;
       if (m.intent && !j.intent) j.intent = m.intent;
       if (m.method && !j.method && ev.event === "onboarding_method_selected") j.method = m.method;
+      if (m.method && !j.signupMethod && ev.event === "signup_completed") j.signupMethod = m.method; // "google" | "email"
       // Plan comes from checkout_completed (actual payment) or onboarding_offer_skipped, not abandoned
       if (m.plan && (ev.event === "checkout_completed" || ev.event === "onboarding_offer_skipped")) {
         j.plan = m.plan;
@@ -318,6 +320,7 @@ export default function Dashboard() {
     const periods = new Map<string, number>();
     const payMethods = new Map<string, number>();
     const platforms = new Map<string, number>();
+    const signupMethods = new Map<string, number>();
 
     for (const j of journeys) {
       if (j.profession) {
@@ -349,6 +352,10 @@ export default function Dashboard() {
         const label = j.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop";
         platforms.set(label, (platforms.get(label) || 0) + 1);
       }
+      if (j.signupMethod) {
+        const label = j.signupMethod === "google" ? "Google" : "Email/Senha";
+        signupMethods.set(label, (signupMethods.get(label) || 0) + 1);
+      }
     }
 
     return {
@@ -359,6 +366,7 @@ export default function Dashboard() {
       periods: Array.from(periods.entries()).sort((a, b) => b[1] - a[1]),
       payMethods: Array.from(payMethods.entries()).sort((a, b) => b[1] - a[1]),
       platforms: Array.from(platforms.entries()).sort((a, b) => b[1] - a[1]),
+      signupMethods: Array.from(signupMethods.entries()).sort((a, b) => b[1] - a[1]),
     };
   }, [journeys]);
 
@@ -468,6 +476,7 @@ export default function Dashboard() {
           <PieCard title="Período" data={analytics.periods.slice(0, 5)} />
           <PieCard title="Pagamento" data={analytics.payMethods.slice(0, 5)} />
           <PieCard title="Plataforma" data={analytics.platforms.slice(0, 5)} />
+          <PieCard title="Cadastro" data={analytics.signupMethods.slice(0, 5)} />
         </div>
 
         {/* ── MAIN FUNNEL: Step-by-step onboarding ──────────────── */}
@@ -809,6 +818,7 @@ export default function Dashboard() {
                 {selectedUser.profession && <InfoPill label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession} />}
                 {selectedUser.intent && <InfoPill label="Jornada" value={INTENT_LABELS[selectedUser.intent] || selectedUser.intent} />}
                 {selectedUser.method && <InfoPill label="Método" value={selectedUser.method === "plugin" ? "Plugin SketchUp" : "Biblioteca Web"} />}
+                {selectedUser.signupMethod && <InfoPill label="Cadastro" value={selectedUser.signupMethod === "google" ? "Google" : "Email/Senha"} />}
                 {selectedUser.plan && <InfoPill label="Plano" value={selectedUser.planName === "teste" ? "Teste Grátis" : `${(selectedUser.planName || selectedUser.plan.split("_")[0]).charAt(0).toUpperCase() + (selectedUser.planName || selectedUser.plan.split("_")[0]).slice(1)}${selectedUser.period ? ` · ${selectedUser.period === "anual" ? "Anual" : "Mensal"}` : ""}${selectedUser.paymentMethod ? ` · ${selectedUser.paymentMethod === "pix" ? "PIX" : "Cartão"}` : ""}`} />}
                 {selectedUser.platform && <InfoPill label="Plataforma" value={selectedUser.platform === "mobile" ? "📱 Mobile" : "🖥️ Desktop"} />}
               </div>
