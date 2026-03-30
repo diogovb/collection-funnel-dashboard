@@ -364,6 +364,9 @@ export default function Dashboard() {
   // ── Users at a specific step ─────────────────────────────────
   const usersAtStep = useMemo(() => {
     if (!selectedStep) return [];
+    // Virtual steps for split cards
+    if (selectedStep === "checkout_free") return journeys.filter(j => j.stepsCompleted.has("checkout_completed") && j.planName === "teste");
+    if (selectedStep === "checkout_paid") return journeys.filter(j => j.stepsCompleted.has("checkout_completed") && j.planName !== "teste" && j.planName !== "");
     return journeys.filter(j => j.stepsCompleted.has(selectedStep));
   }, [journeys, selectedStep]);
 
@@ -506,7 +509,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-3">
               {/* Free path */}
               <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 space-y-3 cursor-pointer hover:bg-amber-500/10 transition-all"
-                onClick={() => setSelectedStep("checkout_completed")}>
+                onClick={() => setSelectedStep("checkout_free")}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">🆓</span>
@@ -525,7 +528,7 @@ export default function Dashboard() {
 
               {/* Paid path */}
               <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4 space-y-3 cursor-pointer hover:bg-green-500/10 transition-all"
-                onClick={() => setSelectedStep("checkout_completed")}>
+                onClick={() => setSelectedStep("checkout_paid")}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">💰</span>
@@ -534,27 +537,20 @@ export default function Dashboard() {
                   <span className="text-lg font-bold text-green-300">{splitCounts.plans.paid}</span>
                 </div>
                 {splitCounts.plans.paid > 0 && (
-                  <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {analytics.plans.filter(([label]) => label !== "Teste").map(([label, count]) => (
-                      <div key={label} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-400">{label}</span>
-                        <span className="font-bold">{count}</span>
-                      </div>
+                      <span key={label} className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300">{label} {count}</span>
                     ))}
-                    {analytics.periods.length > 0 && (
-                      <div className="flex gap-2 pt-1 border-t border-gray-800/30">
-                        {analytics.periods.map(([label, count]) => (
-                          <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "Anual" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>
-                            {label} {count}
-                          </span>
-                        ))}
-                        {analytics.payMethods.map(([label, count]) => (
-                          <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "PIX" ? "bg-emerald-500/20 text-emerald-300" : "bg-orange-500/20 text-orange-300"}`}>
-                            {label} {count}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    {analytics.periods.map(([label, count]) => (
+                      <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "Anual" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"}`}>
+                        {label} {count}
+                      </span>
+                    ))}
+                    {analytics.payMethods.map(([label, count]) => (
+                      <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded ${label === "PIX" ? "bg-emerald-500/20 text-emerald-300" : "bg-orange-500/20 text-orange-300"}`}>
+                        {label} {count}
+                      </span>
+                    ))}
                   </div>
                 )}
                 <div className="h-6 bg-gray-800/50 rounded-lg overflow-hidden">
@@ -901,8 +897,8 @@ export default function Dashboard() {
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
               <div className="flex items-center gap-2">
-                <span className="text-xl">{ALL_STEPS.find(s => s.key === selectedStep)?.icon}</span>
-                <h3 className="text-lg font-semibold">{ALL_STEPS.find(s => s.key === selectedStep)?.label}</h3>
+                <span className="text-xl">{selectedStep === "checkout_free" ? "🆓" : selectedStep === "checkout_paid" ? "💰" : ALL_STEPS.find(s => s.key === selectedStep)?.icon}</span>
+                <h3 className="text-lg font-semibold">{selectedStep === "checkout_free" ? "Teste Grátis" : selectedStep === "checkout_paid" ? "Pagaram" : ALL_STEPS.find(s => s.key === selectedStep)?.label}</h3>
                 <span className="text-sm text-gray-400">({usersAtStep.length} usuários)</span>
               </div>
               <button onClick={() => setSelectedStep(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
