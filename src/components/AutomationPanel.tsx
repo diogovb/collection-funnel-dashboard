@@ -37,10 +37,9 @@ interface FunnelAction {
 
 const STAGES = [
   { key: "signup_completed", label: "Cadastro" },
-  { key: "email_confirmed", label: "Email Confirmado" },
-  { key: "onboarding_started", label: "Onboarding Iniciado" },
   { key: "onboarding_completed", label: "Onboarding Completo" },
-  { key: "installer_login", label: "Login no Instalador" },
+  { key: "checkout_completed", label: "Pagamento" },
+  { key: "installer_login", label: "Login Instalador" },
   { key: "plugin_installed", label: "Plugin Instalado" },
   { key: "first_download", label: "Primeiro Download" },
 ];
@@ -170,7 +169,7 @@ function RuleFormModal({
   onClose: () => void;
 }) {
   const [stage, setStage] = useState(rule?.stage || "signup_completed");
-  const [nextStage, setNextStage] = useState(rule?.next_stage || "email_confirmed");
+  const [nextStage, setNextStage] = useState(rule?.next_stage || "onboarding_completed");
   const [delay, setDelay] = useState(rule?.delay_minutes || 30);
   const [channel, setChannel] = useState(rule?.channel || "email");
   const [subject, setSubject] = useState(rule?.subject || "");
