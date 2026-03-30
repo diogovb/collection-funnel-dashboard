@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 // ── Onboarding Steps (the ONLY funnel now) ─────────────────────
+// Linear funnel steps (shared by all users)
 const STEPS = [
   { key: "onboarding_started", label: "Nome", icon: "📝", fields: ["name", "profession"] },
   { key: "onboarding_step_welcome", label: "Boas-vindas", icon: "👋", fields: [] },
@@ -17,12 +18,23 @@ const STEPS = [
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
   { key: "onboarding_step_install", label: "Acesso", icon: "🚀", fields: ["method"] },
   { key: "onboarding_completed", label: "Completo", icon: "✅", fields: [] },
+] as const;
+
+// Plugin-only sub-steps (right branch)
+const PLUGIN_STEPS = [
   { key: "installer_login", label: "Login Instalador", icon: "🔐", fields: [] },
   { key: "plugin_installed", label: "Plugin Instalado", icon: "🔌", fields: [] },
+] as const;
+
+// Convergence steps (both paths lead here)
+const CONVERGE_STEPS = [
   { key: "first_download", label: "1º Download", icon: "📥", fields: [] },
 ] as const;
 
-type StepKey = (typeof STEPS)[number]["key"];
+// All steps combined (for user journey tracking)
+const ALL_STEPS = [...STEPS, ...PLUGIN_STEPS, ...CONVERGE_STEPS] as const;
+
+type StepKey = (typeof ALL_STEPS)[number]["key"];
 
 const STEP_COLORS = [
   "#6366f1", "#7c3aed", "#8b5cf6", "#a78bfa", "#c084fc",
@@ -210,7 +222,7 @@ export default function Dashboard() {
       if (m.platform && !j.platform) j.platform = m.platform;
 
       // Track steps
-      if (STEPS.some(s => s.key === ev.event)) {
+      if (ALL_STEPS.some(s => s.key === ev.event)) {
         j.stepsCompleted.add(ev.event);
       }
 
@@ -220,10 +232,10 @@ export default function Dashboard() {
 
     // Compute lastStep
     for (const j of map.values()) {
-      for (let i = STEPS.length - 1; i >= 0; i--) {
-        if (j.stepsCompleted.has(STEPS[i].key)) {
-          j.lastStep = STEPS[i].key;
-          j.lastStepLabel = STEPS[i].label;
+      for (let i = ALL_STEPS.length - 1; i >= 0; i--) {
+        if (j.stepsCompleted.has(ALL_STEPS[i].key)) {
+          j.lastStep = ALL_STEPS[i].key;
+          j.lastStepLabel = ALL_STEPS[i].label;
           break;
         }
       }
@@ -243,6 +255,22 @@ export default function Dashboard() {
       }
       return { ...s, count };
     });
+  }, [journeys]);
+
+  // ── Split funnel counts ────────────────────────────────────
+  const splitCounts = useMemo(() => {
+    const webUsers = journeys.filter(j => j.method === "web");
+    const pluginUsers = journeys.filter(j => j.method === "plugin");
+    return {
+      web: { total: webUsers.length, firstDownload: webUsers.filter(j => j.stepsCompleted.has("first_download")).length },
+      plugin: {
+        total: pluginUsers.length,
+        installerLogin: pluginUsers.filter(j => j.stepsCompleted.has("installer_login")).length,
+        pluginInstalled: pluginUsers.filter(j => j.stepsCompleted.has("plugin_installed")).length,
+        firstDownload: pluginUsers.filter(j => j.stepsCompleted.has("first_download")).length,
+      },
+      converge: { firstDownload: journeys.filter(j => j.stepsCompleted.has("first_download")).length },
+    };
   }, [journeys]);
 
   const maxCount = Math.max(1, ...stepCounts.map(s => s.count));
@@ -442,6 +470,85 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── SPLIT FUNNEL: Web vs Plugin ────────────────────── */}
+        {(splitCounts.web.total > 0 || splitCounts.plugin.total > 0) && (
+          <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
+            <h2 className="text-base sm:text-lg font-semibold mb-4">Pós-onboarding</h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Web path */}
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🌐</span>
+                    <span className="font-medium text-sm text-emerald-300">Biblioteca Web</span>
+                  </div>
+                  <span className="text-lg font-bold text-emerald-300">{splitCounts.web.total}</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">📥 1º Download</span>
+                    <span className="font-bold">{splitCounts.web.firstDownload}</span>
+                  </div>
+                  <div className="h-6 bg-gray-800/50 rounded-lg overflow-hidden">
+                    <div className="h-full bg-emerald-500/40 rounded-lg transition-all duration-700"
+                      style={{ width: `${splitCounts.web.total > 0 ? Math.max((splitCounts.web.firstDownload / splitCounts.web.total) * 100, 2) : 0}%` }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Plugin path */}
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🔌</span>
+                    <span className="font-medium text-sm text-blue-300">Plugin SketchUp</span>
+                  </div>
+                  <span className="text-lg font-bold text-blue-300">{splitCounts.plugin.total}</span>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { icon: "🔐", label: "Login Instalador", count: splitCounts.plugin.installerLogin },
+                    { icon: "🔌", label: "Plugin Instalado", count: splitCounts.plugin.pluginInstalled },
+                    { icon: "📥", label: "1º Download", count: splitCounts.plugin.firstDownload },
+                  ].map((s, i) => (
+                    <div key={i}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-gray-400">{s.icon} {s.label}</span>
+                        <span className="font-bold">{s.count}</span>
+                      </div>
+                      <div className="h-6 bg-gray-800/50 rounded-lg overflow-hidden">
+                        <div className="h-full bg-blue-500/40 rounded-lg transition-all duration-700"
+                          style={{ width: `${splitCounts.plugin.total > 0 ? Math.max((s.count / splitCounts.plugin.total) * 100, 2) : 0}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Convergence */}
+            <div className="mt-4 pt-4 border-t border-gray-800/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📥</span>
+                  <span className="font-medium text-sm">1º Download (todos)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold">{splitCounts.converge.firstDownload}</span>
+                  <span className="text-xs text-gray-500">
+                    {journeys.length > 0 ? pct(splitCounts.converge.firstDownload, journeys.length) : "0%"} do total
+                  </span>
+                </div>
+              </div>
+              <div className="h-8 bg-gray-800/50 rounded-lg overflow-hidden mt-2">
+                <div className="h-full bg-gradient-to-r from-emerald-500/40 to-blue-500/40 rounded-lg transition-all duration-700"
+                  style={{ width: `${journeys.length > 0 ? Math.max((splitCounts.converge.firstDownload / journeys.length) * 100, 2) : 0}%` }} />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Automações */}
         <div className="bg-gray-900/50 rounded-2xl p-3 sm:p-6 border border-gray-800">
           <AutomationPanel />
@@ -492,7 +599,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    {STEPS.map((s, i) => (
+                    {ALL_STEPS.map((s) => (
                       <span key={s.key} title={s.label}
                         className={`text-xs ${j.stepsCompleted.has(s.key) ? "" : "opacity-15 grayscale"}`}>
                         {s.icon}
@@ -582,7 +689,7 @@ export default function Dashboard() {
               {/* Journey timeline */}
               <div className="space-y-1">
                 <h4 className="text-sm font-semibold text-gray-300 mb-2">Jornada no Onboarding</h4>
-                {STEPS.map((step, i) => {
+                {ALL_STEPS.map((step, i) => {
                   const completed = selectedUser.stepsCompleted.has(step.key);
                   const stepEvents = selectedUser.allEvents.filter(e => e.event === step.key);
                   const latestEvent = stepEvents[stepEvents.length - 1];
@@ -592,7 +699,7 @@ export default function Dashboard() {
                     <div key={step.key} className={`flex items-start gap-3 p-2 rounded-lg ${completed ? "bg-gray-800/40" : "opacity-40"}`}>
                       <div className="flex flex-col items-center">
                         <span className={`text-lg ${completed ? "" : "grayscale"}`}>{step.icon}</span>
-                        {i < STEPS.length - 1 && (
+                        {i < ALL_STEPS.length - 1 && (
                           <div className={`w-0.5 h-4 mt-1 ${completed ? "bg-gray-600" : "bg-gray-800"}`} />
                         )}
                       </div>
@@ -664,8 +771,8 @@ export default function Dashboard() {
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
               <div className="flex items-center gap-2">
-                <span className="text-xl">{STEPS.find(s => s.key === selectedStep)?.icon}</span>
-                <h3 className="text-lg font-semibold">{STEPS.find(s => s.key === selectedStep)?.label}</h3>
+                <span className="text-xl">{ALL_STEPS.find(s => s.key === selectedStep)?.icon}</span>
+                <h3 className="text-lg font-semibold">{ALL_STEPS.find(s => s.key === selectedStep)?.label}</h3>
                 <span className="text-sm text-gray-400">({usersAtStep.length} usuários)</span>
               </div>
               <button onClick={() => setSelectedStep(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
@@ -689,7 +796,7 @@ export default function Dashboard() {
                           )}
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                          {STEPS.map(s => (
+                          {ALL_STEPS.map(s => (
                             <span key={s.key} className={`text-[10px] ${j.stepsCompleted.has(s.key) ? "" : "opacity-15 grayscale"}`}>
                               {s.icon}
                             </span>
