@@ -201,7 +201,7 @@ export default function Dashboard() {
       if (m.phone && !j.phone) j.phone = m.phone;
       if (m.profession && !j.profession) j.profession = m.profession;
       if (m.intent && !j.intent) j.intent = m.intent;
-      if (m.method && !j.method) j.method = m.method;
+      if (m.method && !j.method && (ev.event === "onboarding_step_how_to_use" || ev.event === "onboarding_method_selected")) j.method = m.method;
       if (m.plan && !j.plan) j.plan = m.plan;
 
       // Track steps
