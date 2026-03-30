@@ -30,11 +30,11 @@ async function queryMetabase(sql: string): Promise<any[]> {
 
 export async function GET() {
   try {
-    // 1. Get emails that have plugin_installed but NOT first_download
-    const { data: installed } = await supabaseAdmin
+    // 1. Get ALL emails that signed up but do NOT have first_download yet
+    const { data: signedUp } = await supabaseAdmin
       .from("funnel_events")
       .select("email")
-      .eq("event", "plugin_installed")
+      .eq("event", "signup_completed")
       .not("email", "is", null);
 
     const { data: downloaded } = await supabaseAdmin
@@ -42,13 +42,12 @@ export async function GET() {
       .select("email")
       .eq("event", "first_download");
 
-    if (!installed || installed.length === 0) {
-      return NextResponse.json({ synced: 0, message: "Nenhum plugin_installed com email" });
+    if (!signedUp || signedUp.length === 0) {
+      return NextResponse.json({ synced: 0, message: "Nenhum signup_completed com email" });
     }
 
     const downloadedEmails = new Set((downloaded || []).map((d) => d.email));
-    const toCheck = installed
-      .map((i) => i.email)
+    const toCheck = [...new Set(signedUp.map((i) => i.email))]
       .filter((email): email is string => !!email && !downloadedEmails.has(email));
 
     if (toCheck.length === 0) {
