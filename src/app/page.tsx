@@ -11,7 +11,7 @@ const STEPS = [
   { key: "onboarding_step_intent", label: "Jornada", icon: "🎯", fields: ["intent"] },
   { key: "onboarding_step_experience", label: "Experiência", icon: "✨", fields: ["intent"] },
   { key: "signup_completed", label: "Cadastro", icon: "🔑", fields: ["email", "phone"] },
-  { key: "onboarding_step_how_to_use", label: "Método", icon: "🧩", fields: ["method"] },
+  { key: "onboarding_method_selected", label: "Método", icon: "🧩", fields: ["method"] },
   { key: "onboarding_step_plans", label: "Planos", icon: "💳", fields: ["plan"] },
   { key: "checkout_completed", label: "Pagamento", icon: "💰", fields: ["plan"] },
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
@@ -201,7 +201,7 @@ export default function Dashboard() {
       if (m.phone && !j.phone) j.phone = m.phone;
       if (m.profession && !j.profession) j.profession = m.profession;
       if (m.intent && !j.intent) j.intent = m.intent;
-      if (m.method && !j.method && (ev.event === "onboarding_step_how_to_use" || ev.event === "onboarding_method_selected")) j.method = m.method;
+      if (m.method && !j.method && ev.event === "onboarding_method_selected") j.method = m.method;
       if (m.plan && !j.plan) j.plan = m.plan;
 
       // Track steps
@@ -602,7 +602,7 @@ export default function Dashboard() {
                                 {meta.email}
                               </span>
                             )}
-                            {meta.method && step.key === "onboarding_step_how_to_use" && (
+                            {meta.method && step.key === "onboarding_method_selected" && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">
                                 {meta.method === "plugin" ? "Plugin SketchUp" : "Biblioteca Web"}
                               </span>
