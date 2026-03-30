@@ -218,7 +218,8 @@ export default function Dashboard() {
       if (m.profession && !j.profession) j.profession = m.profession;
       if (m.intent && !j.intent) j.intent = m.intent;
       if (m.method && !j.method && ev.event === "onboarding_method_selected") j.method = m.method;
-      if (m.plan && !j.plan) j.plan = m.plan;
+      // Plan comes from checkout_completed (actual payment) or onboarding_offer_skipped, not abandoned
+      if (m.plan && (ev.event === "checkout_completed" || ev.event === "onboarding_offer_skipped")) j.plan = m.plan;
       if (m.platform && !j.platform) j.platform = m.platform;
 
       // Track steps
@@ -404,9 +405,9 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <Card label="Iniciaram" value={stepCounts[0]?.count.toString() || "0"} sub="Preencheram nome" />
           <Card label="Cadastraram" value={stepCounts.find(s => s.key === "signup_completed")?.count.toString() || "0"} sub="Criaram conta" />
-          <Card label="Pagaram" value={stepCounts.find(s => s.key === "checkout_completed")?.count.toString() || "0"} sub="Assinaram plano" />
+          <Card label="Pagaram" value={journeys.filter(j => j.plan && j.plan !== "teste_gratis").length.toString()} sub="Assinaram plano pago" />
           <Card label="Conversão"
-            value={pct(stepCounts.find(s => s.key === "checkout_completed")?.count || 0, stepCounts[0]?.count || 0)}
+            value={pct(journeys.filter(j => j.plan && j.plan !== "teste_gratis").length, stepCounts[0]?.count || 0)}
             sub="Início → Pagamento" />
         </div>
 
