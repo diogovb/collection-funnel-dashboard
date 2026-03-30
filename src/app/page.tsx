@@ -11,7 +11,8 @@ const PRE_SPLIT_STEPS = [
   { key: "onboarding_step_welcome", label: "Boas-vindas", icon: "👋", fields: [] },
   { key: "onboarding_step_intent", label: "Jornada", icon: "🎯", fields: ["intent"] },
   { key: "onboarding_step_experience", label: "Experiência", icon: "✨", fields: ["intent"] },
-  { key: "signup_completed", label: "Cadastro", icon: "🔑", fields: ["email", "phone"] },
+  { key: "onboarding_step_account_creation", label: "Tela Cadastro", icon: "📋", fields: [] },
+  { key: "signup_completed", label: "Cadastrou", icon: "🔑", fields: ["email", "phone"] },
   { key: "onboarding_method_selected", label: "Método", icon: "🧩", fields: ["method"] },
 ] as const;
 
