@@ -15,7 +15,7 @@ const STEPS = [
   { key: "onboarding_step_plans", label: "Planos", icon: "💳", fields: ["plan"] },
   { key: "checkout_completed", label: "Pagamento", icon: "💰", fields: ["plan"] },
   { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
-  { key: "onboarding_step_install", label: "Instalar", icon: "⬇️", fields: [] },
+  { key: "onboarding_step_install", label: "Acesso", icon: "🚀", fields: ["method"] },
   { key: "onboarding_completed", label: "Completo", icon: "✅", fields: [] },
 ] as const;
 
@@ -492,7 +492,14 @@ export default function Dashboard() {
                   <span className="text-[10px] text-gray-500">
                     Parou em: <span className="text-gray-400">{j.lastStepLabel || "—"}</span>
                   </span>
-                  <span className="text-[10px] text-gray-500">{formatDate(j.lastSeen)}</span>
+                  <div className="flex items-center gap-1.5">
+                    {j.method && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${j.method === "plugin" ? "bg-blue-500/20 text-blue-300" : "bg-emerald-500/20 text-emerald-300"}`}>
+                        {j.method === "plugin" ? "🔌 Plugin" : "🌐 Web"}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-500">{formatDate(j.lastSeen)}</span>
+                  </div>
                 </div>
               </div>
             ))}
