@@ -24,7 +24,6 @@ const PLAN_STEPS = [
 
 // Post-split steps (shared again)
 const POST_SPLIT_STEPS = [
-  { key: "onboarding_step_workshop", label: "Workshop", icon: "🎓", fields: [] },
   { key: "onboarding_step_install", label: "Acesso", icon: "🚀", fields: ["method"] },
   { key: "onboarding_completed", label: "Completo", icon: "✅", fields: [] },
 ] as const;
@@ -465,6 +464,9 @@ export default function Dashboard() {
           <Card label="Conversão"
             value={pct(journeys.filter(j => j.plan && j.plan !== "teste_gratis").length, stepCounts[0]?.count || 0)}
             sub="Início → Pagamento" />
+          <Card label="Gabriel 💬"
+            value={events.filter(e => e.event === "gabriel_onboard_sent").length.toString()}
+            sub="Conversas iniciadas" />
         </div>
 
         {/* Analytics pie charts */}
