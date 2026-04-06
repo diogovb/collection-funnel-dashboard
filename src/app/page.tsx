@@ -455,7 +455,9 @@ export default function Dashboard() {
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Eventos</p>
                 <div className="space-y-1.5">
-                  {selectedUser.allEvents.map(ev => {
+                  {selectedUser.allEvents.filter(ev => [
+                    "signup_completed", "onboarding_started", "installer_login", "first_download", "Cadastro"
+                  ].includes(ev.event)).map(ev => {
                     const step = FUNNEL_STEPS.find(s => s.key === ev.event);
                     return (
                       <div key={ev.id} className="bg-gray-800/30 rounded-lg p-3 flex items-center justify-between gap-2">
