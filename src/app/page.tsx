@@ -6,11 +6,10 @@ import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 const FUNNEL_STEPS = [
   { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
-  { key: "installer_login", label: "Acesso", icon: "🔐", desc: "Acessaram a plataforma" },
   { key: "first_download", label: "1º Download", icon: "📥", desc: "Baixaram o primeiro bloco" },
 ] as const;
 
-const FUNNEL_COLORS = ["#6366f1", "#8b5cf6", "#a855f7"];
+const FUNNEL_COLORS = ["#6366f1", "#a855f7"];
 const SEG_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#10B981", "#06B6D4"];
 
 const PROFESSION_LABELS: Record<string, string> = {
@@ -116,6 +115,13 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
+
+  useEffect(() => {
+    const syncDownloads = () => fetch("/api/sync-downloads", { method: "POST" }).catch(() => {});
+    syncDownloads();
+    const interval = setInterval(syncDownloads, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const journeys = useMemo(() => {
     const uidToEmail = new Map<string, string>();
@@ -456,7 +462,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Eventos</p>
                 <div className="space-y-1.5">
                   {selectedUser.allEvents.filter(ev => [
-                    "signup_completed", "onboarding_started", "installer_login", "first_download", "Cadastro"
+                    "signup_completed", "onboarding_started", "first_download"
                   ].includes(ev.event)).map(ev => {
                     const step = FUNNEL_STEPS.find(s => s.key === ev.event);
                     return (
