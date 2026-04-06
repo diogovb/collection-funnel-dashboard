@@ -5,10 +5,13 @@ import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 const FUNNEL_STEPS = [
-  { key: "signup_completed", label: "Cadastro", icon: "📋", color: "#6366f1" },
-  { key: "installer_login", label: "Acesso", icon: "🔐", color: "#8b5cf6" },
-  { key: "first_download", label: "1º Download", icon: "📥", color: "#10b981" },
+  { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
+  { key: "installer_login", label: "Acesso", icon: "🔐", desc: "Acessaram a plataforma" },
+  { key: "first_download", label: "1º Download", icon: "📥", desc: "Baixaram o primeiro bloco" },
 ] as const;
+
+const FUNNEL_COLORS = ["#6366f1", "#8b5cf6", "#a855f7"];
+const SEG_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#10B981", "#06B6D4"];
 
 const PROFESSION_LABELS: Record<string, string> = {
   arquiteto: "Arquiteto(a)",
@@ -18,8 +21,6 @@ const PROFESSION_LABELS: Record<string, string> = {
   estudante: "Estudante",
   outro: "Outro",
 };
-
-const PIE_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#10B981", "#06B6D4"];
 
 interface FunnelEvent {
   id: string;
@@ -34,10 +35,9 @@ interface UserJourney {
   key: string;
   name: string;
   email: string;
-  phone: string;
   profession: string;
+  method: string;
   platform: string;
-  signupMethod: string;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -61,16 +61,9 @@ function formatDate(iso: string): string {
   });
 }
 
-function pct(a: number, b: number): string {
-  if (b === 0) return "—";
-  return ((a / b) * 100).toFixed(1) + "%";
-}
-
 export default function Dashboard() {
   const [events, setEvents] = useState<FunnelEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [preset, setPreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -79,7 +72,6 @@ export default function Dashboard() {
   const [userPage, setUserPage] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
-  const [deletingUser, setDeletingUser] = useState(false);
   const USERS_PER_PAGE = 20;
 
   const dateFrom = useMemo(() => {
@@ -125,49 +117,13 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchEvents]);
 
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/sync-downloads", { method: "POST" });
-      const data = await res.json();
-      setSyncResult(data.message || (data.error ? `❌ ${data.error}` : "✅ Sincronizado"));
-      await fetchEvents();
-    } catch {
-      setSyncResult("❌ Erro ao sincronizar");
-    }
-    setSyncing(false);
-  };
-
-  const handleDeleteUser = async (userId: string, email: string) => {
-    if (!confirm(`Deletar usuário ${email}? Esta ação não pode ser desfeita.`)) return;
-    setDeletingUser(true);
-    try {
-      const res = await fetch("/api/delete-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSelectedUser(null);
-        await fetchEvents();
-      } else {
-        alert(`Erro ao deletar: ${data.error || "Desconhecido"}`);
-      }
-    } catch {
-      alert("Erro ao deletar usuário");
-    }
-    setDeletingUser(false);
-  };
-
   const journeys = useMemo(() => {
     const uidToEmail = new Map<string, string>();
     const sidToEmail = new Map<string, string>();
     const sidToUid = new Map<string, string>();
 
     for (const ev of events) {
-      const sid = (ev.metadata as Record<string, unknown>)?.session_id as string | undefined;
+      const sid = (ev.metadata as any)?.session_id;
       if (ev.user_id && ev.email) uidToEmail.set(ev.user_id, ev.email);
       if (sid && ev.email) sidToEmail.set(sid, ev.email);
       if (sid && ev.user_id) sidToUid.set(sid, ev.user_id);
@@ -176,7 +132,7 @@ export default function Dashboard() {
     const enriched = events.map(ev => {
       let email = ev.email;
       let userId = ev.user_id;
-      const sid = (ev.metadata as Record<string, unknown>)?.session_id as string | undefined;
+      const sid = (ev.metadata as any)?.session_id;
       if (userId && sid && userId === sid) userId = "";
       if (!email && userId) email = uidToEmail.get(userId) || "";
       if (!email && sid) email = sidToEmail.get(sid) || "";
@@ -186,12 +142,12 @@ export default function Dashboard() {
 
     const map = new Map<string, UserJourney>();
     for (const ev of enriched) {
-      const sid = (ev.metadata as Record<string, unknown>)?.session_id as string | undefined;
+      const sid = (ev.metadata as any)?.session_id;
       const key = ev.email || sid || ev.user_id || ev.id;
       if (!map.has(key)) {
         map.set(key, {
           key,
-          name: "", email: "", phone: "", profession: "", platform: "", signupMethod: "",
+          name: "", email: "", profession: "", method: "", platform: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -201,13 +157,12 @@ export default function Dashboard() {
       }
       const j = map.get(key)!;
       j.allEvents.push(ev);
-      const m = (ev.metadata || {}) as Record<string, unknown>;
-      if (m.name && !j.name) j.name = String(m.name);
+      const m = (ev.metadata || {}) as any;
+      if (m.name && !j.name) j.name = m.name;
       if (ev.email && !j.email) j.email = ev.email;
-      if (m.phone && !j.phone) j.phone = String(m.phone);
-      if (m.profession && !j.profession) j.profession = String(m.profession);
-      if (m.method && !j.signupMethod && ev.event === "signup_completed") j.signupMethod = String(m.method);
-      if (m.platform && !j.platform) j.platform = String(m.platform);
+      if (m.profession && !j.profession) j.profession = m.profession;
+      if (m.method && !j.method && ev.event === "signup_completed") j.method = m.method;
+      if (m.platform && !j.platform) j.platform = m.platform;
       if (FUNNEL_STEPS.some(s => s.key === ev.event)) j.stepsCompleted.add(ev.event);
       if (ev.created_at > j.lastSeen) j.lastSeen = ev.created_at;
       if (ev.created_at < j.firstSeen) j.firstSeen = ev.created_at;
@@ -233,91 +188,64 @@ export default function Dashboard() {
     }));
   }, [journeys]);
 
-  // Segmentações
-  const segmentations = useMemo(() => {
-    const cadastro = funnelCounts[0].count;
+  const analytics = useMemo(() => {
+    const profs = new Map<string, number>();
+    const platforms = new Map<string, number>();
+    const methods = new Map<string, number>();
 
-    // Mobile vs Desktop (based on all users with platform set, or all signups)
-    const mobileSignups = journeys.filter(j => j.platform === "mobile" && j.stepsCompleted.has("signup_completed")).length;
-    const desktopSignups = journeys.filter(j => j.platform === "desktop" && j.stepsCompleted.has("signup_completed")).length;
-    const mobileDownloads = journeys.filter(j => j.platform === "mobile" && j.stepsCompleted.has("first_download")).length;
-    const desktopDownloads = journeys.filter(j => j.platform === "desktop" && j.stepsCompleted.has("first_download")).length;
-
-    // Google vs Email/Senha
-    const googleSignups = journeys.filter(j => j.signupMethod === "google" && j.stepsCompleted.has("signup_completed")).length;
-    const emailSignups = journeys.filter(j => j.signupMethod && j.signupMethod !== "google" && j.stepsCompleted.has("signup_completed")).length;
-    const googleDownloads = journeys.filter(j => j.signupMethod === "google" && j.stepsCompleted.has("first_download")).length;
-    const emailDownloads = journeys.filter(j => j.signupMethod && j.signupMethod !== "google" && j.stepsCompleted.has("first_download")).length;
-
-    // Profissão
-    const profs = new Map<string, { cadastro: number; download: number }>();
     for (const j of journeys) {
-      if (!j.profession) continue;
-      const label = PROFESSION_LABELS[j.profession] || j.profession;
-      if (!profs.has(label)) profs.set(label, { cadastro: 0, download: 0 });
-      const p = profs.get(label)!;
-      if (j.stepsCompleted.has("signup_completed")) p.cadastro++;
-      if (j.stepsCompleted.has("first_download")) p.download++;
+      if (j.profession) {
+        const label = PROFESSION_LABELS[j.profession] || j.profession;
+        profs.set(label, (profs.get(label) || 0) + 1);
+      }
+      if (j.platform) {
+        const label = j.platform === "mobile" ? "Mobile" : "Desktop";
+        platforms.set(label, (platforms.get(label) || 0) + 1);
+      }
+      if (j.method) {
+        const label = j.method === "google" ? "Google" : "Email/Senha";
+        methods.set(label, (methods.get(label) || 0) + 1);
+      }
     }
 
     return {
-      cadastro,
-      mobile: { signups: mobileSignups, downloads: mobileDownloads },
-      desktop: { signups: desktopSignups, downloads: desktopDownloads },
-      google: { signups: googleSignups, downloads: googleDownloads },
-      email: { signups: emailSignups, downloads: emailDownloads },
-      professions: Array.from(profs.entries()).sort((a, b) => b[1].cadastro - a[1].cadastro),
+      professions: Array.from(profs.entries()).sort((a, b) => b[1] - a[1]),
+      platforms: Array.from(platforms.entries()).sort((a, b) => b[1] - a[1]),
+      methods: Array.from(methods.entries()).sort((a, b) => b[1] - a[1]),
     };
-  }, [journeys, funnelCounts]);
+  }, [journeys]);
 
-  const usersAtStep = useMemo(() =>
-    selectedStep ? journeys.filter(j => j.stepsCompleted.has(selectedStep)) : [],
-    [journeys, selectedStep]
-  );
+  const usersAtStep = useMemo(() => selectedStep ? journeys.filter(j => j.stepsCompleted.has(selectedStep)) : [], [journeys, selectedStep]);
 
   const filteredJourneys = useMemo(() => {
     if (!searchTerm) return journeys;
     const q = searchTerm.toLowerCase();
-    return journeys.filter(j =>
-      j.name?.toLowerCase().includes(q) ||
-      j.email?.toLowerCase().includes(q) ||
-      j.profession?.toLowerCase().includes(q)
-    );
+    return journeys.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.profession?.toLowerCase().includes(q));
   }, [journeys, searchTerm]);
 
   const pagedJourneys = filteredJourneys.slice(userPage * USERS_PER_PAGE, (userPage + 1) * USERS_PER_PAGE);
-  const maxFunnelCount = Math.max(1, funnelCounts[0]?.count || 1);
+  const totalPages = Math.ceil(filteredJourneys.length / USERS_PER_PAGE);
+  const topCount = funnelCounts[0]?.count || 1;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-6">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-6">
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-              🎯 Funil Collection
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+              Funil de Onboarding
             </h1>
-            <p className="text-gray-400 mt-1 text-xs sm:text-base">Cadastro → Acesso → 1º Download</p>
+            <p className="text-gray-500 mt-1 text-sm">Collection — acompanhamento em tempo real</p>
           </div>
-          <div className="flex items-center gap-3 text-sm text-gray-400">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
             {loading && <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />}
             <span>{lastRefresh.toLocaleTimeString("pt-BR")} · 30s</span>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="px-3 py-1.5 rounded-lg text-xs bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50 disabled:opacity-50"
-            >
-              {syncing ? "Sincronizando..." : "↻ Metabase"}
-            </button>
           </div>
         </div>
 
-        {syncResult && (
-          <div className="bg-gray-800/50 rounded-lg px-4 py-2 text-sm text-gray-300">{syncResult}</div>
-        )}
-
-        {/* Date presets */}
+        {/* Date filters */}
         <div className="flex flex-wrap items-center gap-2">
           {(["today", "7d", "30d", "90d", "custom"] as DatePreset[]).map(p => (
             <button
@@ -342,50 +270,78 @@ export default function Dashboard() {
           <button onClick={fetchEvents} className="ml-auto px-3 py-1.5 rounded-lg text-sm bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50">↻</button>
         </div>
 
-        {/* FUNIL VISUAL */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-base sm:text-lg font-semibold">Funil de conversão</h2>
-            <span className="text-xs text-gray-500">{journeys.length} usuários no período</span>
-          </div>
+        {/* Summary cards */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          {funnelCounts.map((step, i) => {
+            const prev = i > 0 ? funnelCounts[i - 1].count : null;
+            const conv = prev !== null && prev > 0 ? ((step.count / prev) * 100).toFixed(1) + "%" : null;
+            return (
+              <SummaryCard
+                key={step.key}
+                label={step.label}
+                value={step.count}
+                sub={step.desc}
+                conversion={conv}
+                color={FUNNEL_COLORS[i]}
+              />
+            );
+          })}
+        </div>
 
+        {/* Funnel visualization */}
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-8 border border-gray-800/50">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-6">Funil de conversão</h2>
           <div className="space-y-1">
             {funnelCounts.map((step, i) => {
-              const widthPct = (step.count / maxFunnelCount) * 100;
-              const prevCount = i > 0 ? funnelCounts[i - 1].count : step.count;
-              const convPct = i > 0 ? pct(step.count, prevCount) : null;
-              const dropCount = i > 0 ? prevCount - step.count : 0;
+              const widthPct = topCount > 0 ? (step.count / topCount) * 100 : 0;
+              const prev = i > 0 ? funnelCounts[i - 1].count : null;
+              const convRate = prev !== null && prev > 0 ? ((step.count / prev) * 100).toFixed(1) : null;
+              const dropRate = prev !== null && prev > 0 ? (((prev - step.count) / prev) * 100).toFixed(1) : null;
 
               return (
-                <div key={step.key} className="flex flex-col items-center">
-                  {/* Conversão entre etapas */}
+                <div key={step.key}>
+                  {/* Conversion connector between steps */}
                   {i > 0 && (
-                    <div className="flex items-center gap-3 py-2 text-xs">
-                      <span className="text-gray-500">▼</span>
-                      <span className="text-emerald-400 font-medium">{convPct} conversão</span>
-                      {dropCount > 0 && <span className="text-red-400">−{dropCount} saíram</span>}
+                    <div className="flex items-center justify-center py-3 gap-3">
+                      <div className="flex-1 border-t border-dashed border-gray-800" />
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 font-medium">
+                          ↓ {convRate}%
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-red-900/30 text-red-400">
+                          {dropRate}% saíram
+                        </span>
+                      </div>
+                      <div className="flex-1 border-t border-dashed border-gray-800" />
                     </div>
                   )}
 
-                  {/* Barra de funil (centralizada, diminui a cada etapa) */}
+                  {/* Funnel bar — centered, narrowing */}
                   <div
-                    className="w-full cursor-pointer group"
-                    style={{ paddingLeft: `${(100 - widthPct) / 2}%`, paddingRight: `${(100 - widthPct) / 2}%` }}
+                    className="cursor-pointer group"
                     onClick={() => setSelectedStep(step.key)}
                   >
-                    <div
-                      className="rounded-xl transition-all duration-700 ease-out group-hover:opacity-90 flex items-center justify-between px-4 sm:px-6"
-                      style={{ backgroundColor: step.color, height: "56px" }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{step.icon}</span>
-                        <span className="font-semibold text-sm sm:text-base text-white">{step.label}</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xl sm:text-2xl font-bold text-white tabular-nums">{step.count}</div>
-                        <div className="text-[10px] text-white/70">
-                          {pct(step.count, funnelCounts[0].count)} do total
-                        </div>
+                    <div className="flex items-center gap-3 mb-1.5 px-1">
+                      <span className="text-base">{step.icon}</span>
+                      <span className="text-sm font-medium" style={{ color: FUNNEL_COLORS[i] }}>{step.label}</span>
+                      <span className="text-xs text-gray-500 ml-auto">{step.desc}</span>
+                    </div>
+                    <div className="relative h-11 bg-gray-800/40 rounded-xl overflow-hidden group-hover:bg-gray-800/60 transition-colors">
+                      {/* centered funnel bar */}
+                      <div
+                        className="absolute top-0 bottom-0 rounded-xl transition-all duration-700"
+                        style={{
+                          width: `${Math.max(widthPct, 2)}%`,
+                          left: `${(100 - Math.max(widthPct, 2)) / 2}%`,
+                          background: `linear-gradient(90deg, ${FUNNEL_COLORS[i]}99, ${FUNNEL_COLORS[i]}, ${FUNNEL_COLORS[i]}99)`,
+                        }}
+                      />
+                      {/* count label inside bar */}
+                      <div className="absolute inset-0 flex items-center justify-center gap-2">
+                        <span className="text-base font-bold tabular-nums drop-shadow-md">{step.count}</span>
+                        <span className="text-xs text-white/60 drop-shadow-md">
+                          {topCount > 0 ? ((step.count / topCount) * 100).toFixed(0) : 0}%
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -395,90 +351,19 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* SEGMENTAÇÕES */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-          {/* Mobile vs Desktop */}
-          <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-5 border border-gray-800/50">
-            <h3 className="text-sm font-semibold mb-4">Plataforma</h3>
-            <div className="space-y-3">
-              <SegRow
-                label="📱 Mobile"
-                signups={segmentations.mobile.signups}
-                downloads={segmentations.mobile.downloads}
-                totalSignups={segmentations.cadastro}
-                color="#3B82F6"
-              />
-              <SegRow
-                label="🖥️ Desktop"
-                signups={segmentations.desktop.signups}
-                downloads={segmentations.desktop.downloads}
-                totalSignups={segmentations.cadastro}
-                color="#8B5CF6"
-              />
-            </div>
-          </div>
-
-          {/* Google vs Email */}
-          <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-5 border border-gray-800/50">
-            <h3 className="text-sm font-semibold mb-4">Método de cadastro</h3>
-            <div className="space-y-3">
-              <SegRow
-                label="🔵 Google"
-                signups={segmentations.google.signups}
-                downloads={segmentations.google.downloads}
-                totalSignups={segmentations.cadastro}
-                color="#3B82F6"
-              />
-              <SegRow
-                label="✉️ Email/Senha"
-                signups={segmentations.email.signups}
-                downloads={segmentations.email.downloads}
-                totalSignups={segmentations.cadastro}
-                color="#EC4899"
-              />
-            </div>
-          </div>
+        {/* Segmentation */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SegCard title="Plataforma" data={analytics.platforms} />
+          <SegCard title="Método de cadastro" data={analytics.methods} />
+          <SegCard title="Profissão" data={analytics.professions.slice(0, 6)} />
         </div>
 
-        {/* Profissão */}
-        {segmentations.professions.length > 0 && (
-          <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-5 border border-gray-800/50">
-            <h3 className="text-sm font-semibold mb-4">Profissão</h3>
-            <div className="space-y-3">
-              {segmentations.professions.map(([label, counts], i) => (
-                <div key={label} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                      <span className="text-gray-300">{label}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-gray-400 tabular-nums">
-                      <span>{counts.cadastro} cadastros</span>
-                      <span className="text-emerald-400">{pct(counts.download, counts.cadastro)} download</span>
-                    </div>
-                  </div>
-                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${segmentations.cadastro > 0 ? (counts.cadastro / segmentations.cadastro) * 100 : 0}%`,
-                        backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AutomationPanel */}
+        {/* Automations */}
         <div className="bg-gray-900/50 rounded-2xl p-3 sm:p-6 border border-gray-800">
           <AutomationPanel />
         </div>
 
-        {/* Lista de usuários */}
+        {/* User list */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
             <h2 className="text-base sm:text-lg font-semibold">Usuários ({filteredJourneys.length})</h2>
@@ -508,50 +393,31 @@ export default function Dashboard() {
                       )}
                       {j.platform && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300">
-                          {j.platform === "mobile" ? "📱" : "🖥️"} {j.platform}
-                        </span>
-                      )}
-                      {j.signupMethod && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
-                          {j.signupMethod === "google" ? "Google" : "Email"}
+                          {j.platform === "mobile" ? "Mobile" : "Desktop"}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 truncate mt-1">{j.email || "Sem email"}</p>
+                    <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-0.5">
-                      {FUNNEL_STEPS.map(s => (
-                        <div
-                          key={s.key}
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: j.stepsCompleted.has(s.key) ? s.color : "#374151" }}
-                          title={s.label}
-                        />
-                      ))}
-                    </div>
-                    <div className="text-xs text-gray-500">{j.lastStepLabel || "—"}</div>
-                  </div>
+                  <div className="text-xs text-gray-500 shrink-0">{j.lastStepLabel || "—"}</div>
                 </div>
               </div>
             ))}
           </div>
-          {filteredJourneys.length > USERS_PER_PAGE && (
-            <div className="flex justify-center gap-2 mt-4">
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-800">
               <button
                 onClick={() => setUserPage(p => Math.max(0, p - 1))}
                 disabled={userPage === 0}
-                className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 disabled:opacity-40 hover:bg-gray-700"
+                className="px-3 py-1.5 rounded-lg text-xs bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50 disabled:opacity-40"
               >
                 ← Anterior
               </button>
-              <span className="px-3 py-1.5 text-xs text-gray-400">
-                {userPage + 1} / {Math.ceil(filteredJourneys.length / USERS_PER_PAGE)}
-              </span>
+              <span className="text-xs text-gray-500">{userPage + 1} / {totalPages}</span>
               <button
-                onClick={() => setUserPage(p => Math.min(Math.ceil(filteredJourneys.length / USERS_PER_PAGE) - 1, p + 1))}
-                disabled={(userPage + 1) * USERS_PER_PAGE >= filteredJourneys.length}
-                className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 disabled:opacity-40 hover:bg-gray-700"
+                onClick={() => setUserPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={userPage === totalPages - 1}
+                className="px-3 py-1.5 rounded-lg text-xs bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50 disabled:opacity-40"
               >
                 Próximo →
               </button>
@@ -559,17 +425,17 @@ export default function Dashboard() {
           )}
         </div>
 
-        <footer className="text-center text-xs text-gray-500 py-4">Atualização automática a cada 30s</footer>
+        <footer className="text-center text-xs text-gray-600 py-4">Atualização automática a cada 30s</footer>
       </div>
 
-      {/* Modal: detalhe do usuário */}
+      {/* User detail modal */}
       {selectedUser && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
           onClick={() => setSelectedUser(null)}
         >
           <div
-            className="bg-gray-900 sm:rounded-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700 flex flex-col"
+            className="bg-gray-900 sm:rounded-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
@@ -577,68 +443,32 @@ export default function Dashboard() {
                 <h3 className="text-lg font-semibold">{selectedUser.name || selectedUser.email || "Usuário"}</h3>
                 <p className="text-xs text-gray-400">{selectedUser.email || selectedUser.key}</p>
               </div>
-              <div className="flex items-center gap-2">
-                {selectedUser.email && (
-                  <button
-                    onClick={() => handleDeleteUser(selectedUser.key, selectedUser.email)}
-                    disabled={deletingUser}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-red-900/40 text-red-400 hover:bg-red-900/60 border border-red-800/50 disabled:opacity-50"
-                  >
-                    {deletingUser ? "Deletando..." : "🗑️ Deletar"}
-                  </button>
-                )}
-                <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
-              </div>
+              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 space-y-4">
-              {/* Metadata */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(85vh-60px)] space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
-                <Meta label="Cadastro" value={selectedUser.signupMethod === "google" ? "Google" : selectedUser.signupMethod ? "Email/Senha" : "—"} />
+                <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />
+                <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
               </div>
-
-              {/* Progresso no funil */}
-              <div className="bg-gray-800/30 rounded-xl p-3">
-                <p className="text-xs text-gray-500 mb-2">Progresso no funil</p>
-                <div className="flex gap-2">
-                  {FUNNEL_STEPS.map(s => (
-                    <div key={s.key} className="flex-1 text-center">
-                      <div
-                        className="rounded-lg py-2 px-1 text-xs font-medium"
-                        style={{
-                          backgroundColor: selectedUser.stepsCompleted.has(s.key) ? s.color + "33" : "#1f2937",
-                          color: selectedUser.stepsCompleted.has(s.key) ? s.color : "#6b7280",
-                          borderWidth: 1,
-                          borderColor: selectedUser.stepsCompleted.has(s.key) ? s.color + "66" : "#374151",
-                        }}
-                      >
-                        <div>{s.icon}</div>
-                        <div className="mt-0.5">{s.label}</div>
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Eventos</p>
+                <div className="space-y-1.5">
+                  {selectedUser.allEvents.map(ev => {
+                    const step = FUNNEL_STEPS.find(s => s.key === ev.event);
+                    return (
+                      <div key={ev.id} className="bg-gray-800/30 rounded-lg p-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{step?.icon || "•"}</span>
+                          <span className="text-sm font-medium">{step?.label || ev.event}</span>
+                        </div>
+                        <span className="text-xs text-gray-500">{formatDate(ev.created_at)}</span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
-
-              {/* Eventos */}
-              <div className="space-y-2">
-                <p className="text-xs text-gray-500">Histórico de eventos ({selectedUser.allEvents.length})</p>
-                {selectedUser.allEvents.map(ev => (
-                  <div key={ev.id} className="bg-gray-800/30 rounded-lg p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span>{FUNNEL_STEPS.find(s => s.key === ev.event)?.icon || "•"}</span>
-                        <span className="text-sm font-medium">
-                          {FUNNEL_STEPS.find(s => s.key === ev.event)?.label || ev.event}
-                        </span>
-                      </div>
-                      <span className="text-xs text-gray-500">{formatDate(ev.created_at)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
               {selectedUser.email && (
                 <div className="border-t border-gray-800 pt-3">
                   <UserActionsList email={selectedUser.email} />
@@ -649,14 +479,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modal: usuários em uma etapa do funil */}
+      {/* Step drill-down modal */}
       {selectedStep && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
           onClick={() => setSelectedStep(null)}
         >
           <div
-            className="bg-gray-900 sm:rounded-2xl max-w-3xl w-full h-full sm:h-auto sm:max-h-[80vh] overflow-hidden border-0 sm:border border-gray-700 flex flex-col"
+            className="bg-gray-900 sm:rounded-2xl max-w-3xl w-full h-full sm:h-auto sm:max-h-[80vh] overflow-hidden border-0 sm:border border-gray-700"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
@@ -667,7 +497,7 @@ export default function Dashboard() {
               </div>
               <button onClick={() => setSelectedStep(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
             </div>
-            <div className="p-3 sm:p-4 overflow-y-auto flex-1 space-y-2">
+            <div className="p-3 sm:p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(80vh-60px)] space-y-2">
               {usersAtStep.map(j => (
                 <div
                   key={j.key}
@@ -679,10 +509,7 @@ export default function Dashboard() {
                       <div className="font-medium text-sm">{j.name || j.email || j.key.slice(0, 8) + "…"}</div>
                       <div className="text-xs text-gray-400">{j.email || "Sem email"}</div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      {j.platform && <span>{j.platform === "mobile" ? "📱" : "🖥️"}</span>}
-                      {j.profession && <span>{PROFESSION_LABELS[j.profession] || j.profession}</span>}
-                    </div>
+                    <div className="text-xs text-gray-500">{j.platform || "—"}</div>
                   </div>
                 </div>
               ))}
@@ -694,36 +521,56 @@ export default function Dashboard() {
   );
 }
 
-function SegRow({
-  label,
-  signups,
-  downloads,
-  totalSignups,
-  color,
-}: {
-  label: string;
-  signups: number;
-  downloads: number;
-  totalSignups: number;
-  color: string;
+function SummaryCard({ label, value, sub, conversion, color }: {
+  label: string; value: number; sub: string; conversion: string | null; color: string;
 }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs gap-2">
-        <span className="text-gray-300">{label}</span>
-        <div className="flex items-center gap-3 tabular-nums">
-          <span className="text-gray-400">{signups} cadastros</span>
-          <span className="text-emerald-400">{pct(downloads, signups)} download</span>
-        </div>
-      </div>
-      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${totalSignups > 0 ? (signups / totalSignups) * 100 : 0}%`,
-            backgroundColor: color,
-          }}
-        />
+    <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50 relative overflow-hidden">
+      <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ background: `radial-gradient(circle at 80% 20%, ${color}, transparent 60%)` }} />
+      <div className="text-2xl sm:text-3xl font-bold tabular-nums">{value}</div>
+      <div className="text-sm font-medium text-gray-200 mt-1">{label}</div>
+      <div className="text-xs text-gray-500 mt-0.5">{sub}</div>
+      {conversion && (
+        <div className="mt-2 text-xs font-semibold" style={{ color }}>{conversion} da etapa anterior</div>
+      )}
+    </div>
+  );
+}
+
+function SegCard({ title, data }: { title: string; data: [string, number][] }) {
+  const total = data.reduce((acc, [, v]) => acc + v, 0);
+  return (
+    <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50">
+      <h3 className="text-sm font-semibold text-gray-300 mb-3">{title}</h3>
+      <div className="space-y-3">
+        {data.length === 0 ? (
+          <p className="text-xs text-gray-500">Sem dados</p>
+        ) : (
+          data.map(([label, value], i) => (
+            <div key={label}>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
+                  <span className="truncate text-gray-300">{label}</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <span className="font-medium text-gray-200">{value}</span>
+                  <span className="text-gray-600">·</span>
+                  <span className="text-gray-500">{total > 0 ? ((value / total) * 100).toFixed(0) : 0}%</span>
+                </div>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${total > 0 ? (value / total) * 100 : 0}%`,
+                    backgroundColor: SEG_COLORS[i % SEG_COLORS.length],
+                  }}
+                />
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -733,7 +580,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-gray-800/30 rounded-lg p-2.5">
       <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="text-sm text-gray-200 mt-1">{value}</div>
+      <div className="text-sm text-gray-200 mt-1 truncate">{value}</div>
     </div>
   );
 }

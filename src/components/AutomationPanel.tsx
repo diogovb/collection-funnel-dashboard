@@ -38,7 +38,8 @@ interface FunnelAction {
 const STAGES = [
   { key: "signup_completed", label: "Cadastro" },
   { key: "installer_login", label: "Acesso" },
-  { key: "first_download", label: "1º Download" },
+  { key: "first_download", label: "Primeiro Download" },
+  { key: "checkout_completed", label: "Pagamento" },
 ];
 
 const CHANNEL_ICONS: Record<string, string> = {
