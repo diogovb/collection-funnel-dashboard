@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
 const CADASTRO_STEPS = [
-  { key: "onboarding_started", label: "Nome + profissão", icon: "📝" },
   { key: "onboarding_step_account_creation", label: "Cadastro", icon: "📋" },
   { key: "signup_completed", label: "Conta criada", icon: "🔑" },
 ] as const;
@@ -292,7 +291,7 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-          <Card label="Iniciaram" value={stepCounts.find(s => s.key === "onboarding_started")?.count.toString() || "0"} sub="Nome + profissão" />
+          <Card label="Iniciaram cadastro" value={stepCounts.find(s => s.key === "onboarding_step_account_creation")?.count.toString() || "0"} sub="Tela de cadastro" />
           <Card label="Cadastraram" value={stepCounts.find(s => s.key === "signup_completed")?.count.toString() || "0"} sub="Criaram conta" />
           <Card label="Mobile" value={splitCounts.platforms.mobile.toString()} sub="Continuam na experiência" />
           <Card label="Desktop" value={splitCounts.platforms.desktop.toString()} sub="Entram direto no app" />
