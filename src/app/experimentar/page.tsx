@@ -47,6 +47,16 @@ const STATE_NAMES: Record<string, string> = {
   TO: "Tocantins", AC: "Acre", AP: "Amapá", RR: "Roraima",
 };
 
+function extractReferrerDomain(referrer: string): string {
+  if (!referrer) return "Direto";
+  try {
+    const url = new URL(referrer);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return referrer.slice(0, 50) || "Direto";
+  }
+}
+
 function extractDDD(phone: string): string | null {
   if (!phone) return null;
   const digits = phone.replace(/\D/g, "");
@@ -86,12 +96,16 @@ interface Lead {
   profession: string;
   platform: string;
   state: string | null;
+  referrerDomain: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
 }
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
 type DrillFilter = {
-  type: "profession" | "platform" | "state" | "domain" | "hour" | "day";
+  type: "profession" | "platform" | "state" | "domain" | "hour" | "day" | "referrer" | "campaign";
   value: string;
   label: string;
 } | null;
@@ -188,6 +202,10 @@ export default function ExperimentarDashboard() {
         profession: m.profession || "",
         platform: m.platform || "",
         state: dddToState(phone),
+        referrerDomain: extractReferrerDomain(m.referrer || ""),
+        utmSource: m.utm_source || "",
+        utmMedium: m.utm_medium || "",
+        utmCampaign: m.utm_campaign || "",
       };
     });
     setLeads(parsed);
@@ -274,6 +292,26 @@ export default function ExperimentarDashboard() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [leads]);
 
+  const referrerSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leads) {
+      map.set(l.referrerDomain, (map.get(l.referrerDomain) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [leads]);
+
+  const campaignSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leads) {
+      if (!l.utmSource) continue;
+      const key = l.utmCampaign ? `${l.utmSource} / ${l.utmCampaign}` : l.utmSource;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [leads]);
+
+  const hasCampaigns = campaignSeg.length > 0;
+
   // ─── Leads per day (last 15 days) ──────────────────────────────────────────
   const leadsByDay = useMemo(() => {
     const map = new Map<string, number>();
@@ -325,6 +363,12 @@ export default function ExperimentarDashboard() {
           return (l.state ?? "Não identificado") === drillFilter.value;
         case "domain":
           return l.email.split("@")[1]?.toLowerCase() === drillFilter.value;
+        case "referrer":
+          return l.referrerDomain === drillFilter.value;
+        case "campaign": {
+          const key = l.utmCampaign ? `${l.utmSource} / ${l.utmCampaign}` : l.utmSource;
+          return key === drillFilter.value;
+        }
         case "hour":
           return new Date(l.created_at).getHours() === parseInt(drillFilter.value);
         case "day":
@@ -474,6 +518,22 @@ export default function ExperimentarDashboard() {
               setView("drillList");
             }}
           />
+        </div>
+
+        {/* Origin & Campaigns */}
+        <div className={`grid grid-cols-1 ${hasCampaigns ? "sm:grid-cols-2" : ""} gap-4`}>
+          <SegCard
+            title="Origem"
+            data={referrerSeg}
+            onItemClick={(label) => { setDrillFilter({ type: "referrer", value: label, label }); setView("drillList"); }}
+          />
+          {hasCampaigns && (
+            <SegCard
+              title="Campanhas (UTM)"
+              data={campaignSeg}
+              onItemClick={(label) => { setDrillFilter({ type: "campaign", value: label, label }); setView("drillList"); }}
+            />
+          )}
         </div>
 
         {/* Hourly distribution */}
