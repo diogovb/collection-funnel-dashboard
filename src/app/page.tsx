@@ -204,18 +204,14 @@ export default function Dashboard() {
     const methods = new Map<string, number>();
 
     for (const j of journeys.filter(j => j.stepsCompleted.has("signup_completed"))) {
-      if (j.profession) {
-        const label = PROFESSION_LABELS[j.profession] || j.profession;
-        profs.set(label, (profs.get(label) || 0) + 1);
-      }
-      if (j.platform) {
-        const label = j.platform === "mobile" ? "Mobile" : "Desktop";
-        platforms.set(label, (platforms.get(label) || 0) + 1);
-      }
-      if (j.method) {
-        const label = j.method === "google" ? "Google" : "Email/Senha";
-        methods.set(label, (methods.get(label) || 0) + 1);
-      }
+      const profLabel = j.profession ? (PROFESSION_LABELS[j.profession] || j.profession) : "Não informado";
+      profs.set(profLabel, (profs.get(profLabel) || 0) + 1);
+
+      const platLabel = j.platform ? (j.platform === "mobile" ? "Mobile" : "Desktop") : "Não informado";
+      platforms.set(platLabel, (platforms.get(platLabel) || 0) + 1);
+
+      const methLabel = j.method ? (j.method === "google" ? "Google" : "Email/Senha") : "Não informado";
+      methods.set(methLabel, (methods.get(methLabel) || 0) + 1);
     }
 
     return {
