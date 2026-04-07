@@ -67,11 +67,12 @@ export async function GET() {
     const emailList = toCheck.map((e) => `'${e.replace(/'/g, "''")}'`).join(",");
     
     const rows = await queryMetabase(
-      `SELECT DISTINCT u.email
+      `SELECT u.email, MIN(pd."createdAt") AS first_download_at
        FROM product_download pd
        JOIN user_on_office uoo ON uoo.id = pd."userOnOfficeId"
        JOIN "user" u ON u.id = uoo."userId"
        WHERE u.email IN (${emailList})
+       GROUP BY u.email
        LIMIT 100`
     );
 
@@ -79,10 +80,11 @@ export async function GET() {
       return NextResponse.json({ synced: 0, message: "Nenhum download encontrado" });
     }
 
-    // 3. Insert first_download events
+    // 3. Insert first_download events using the real download date
     const events = rows.map((row) => ({
       email: row.email,
       event: "first_download",
+      created_at: row.first_download_at ?? new Date().toISOString(),
       metadata: { source: "metabase_sync", synced_at: new Date().toISOString() },
     }));
 
