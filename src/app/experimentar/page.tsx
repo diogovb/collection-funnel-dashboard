@@ -266,7 +266,7 @@ export default function ExperimentarDashboard() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [leads]);
 
-  // ─── Leads per day (last 30 days) ──────────────────────────────────────────
+  // ─── Leads per day (last 15 days) ──────────────────────────────────────────
   const leadsByDay = useMemo(() => {
     const map = new Map<string, number>();
     for (const l of leads) {
@@ -274,7 +274,7 @@ export default function ExperimentarDashboard() {
       map.set(day, (map.get(day) || 0) + 1);
     }
     const days: { day: string; count: number }[] = [];
-    for (let i = 29; i >= 0; i--) {
+    for (let i = 14; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
@@ -387,7 +387,7 @@ export default function ExperimentarDashboard() {
 
         {/* Leads per day chart */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Leads por dia (últimos 30 dias)</h2>
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Leads por dia (últimos 15 dias)</h2>
           <div className="flex items-end gap-0.5 h-28 overflow-x-auto pb-5">
             {leadsByDay.map(({ day, count }) => {
               const heightPct = maxDayCount > 0 ? (count / maxDayCount) * 100 : 0;
