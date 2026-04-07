@@ -225,7 +225,10 @@ export default function Dashboard() {
     };
   }, [journeys]);
 
-  const usersAtStep = useMemo(() => selectedStep ? journeys.filter(j => j.stepsCompleted.has(selectedStep)) : [], [journeys, selectedStep]);
+  const usersAtStep = useMemo(() => selectedStep ? journeys.filter(j =>
+    j.stepsCompleted.has(selectedStep) &&
+    (selectedStep === "signup_completed" || j.stepsCompleted.has("signup_completed"))
+  ) : [], [journeys, selectedStep]);
 
   const filteredJourneys = useMemo(() => {
     if (!searchTerm) return journeys;
