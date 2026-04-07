@@ -123,7 +123,7 @@ function waLink(phone: string): string {
 export default function ExperimentarDashboard() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [preset, setPreset] = useState<DatePreset>("30d");
+  const [preset, setPreset] = useState<DatePreset>("today");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(0);
