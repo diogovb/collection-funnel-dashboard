@@ -31,12 +31,22 @@ async function queryMetabase(sql: string): Promise<any[]> {
 export async function GET() {
   try {
     // 1. Get ALL unique emails in funnel that do NOT have first_download yet
-    const { data: allEvents } = await supabaseAdmin
-      .from("funnel_events")
-      .select("email, event")
-      .not("email", "is", null);
+    const PAGE_SIZE = 1000;
+    let page = 0;
+    let allEvents: { email: string | null; event: string }[] = [];
+    while (true) {
+      const { data, error } = await supabaseAdmin
+        .from("funnel_events")
+        .select("email, event")
+        .not("email", "is", null)
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      if (error || !data) break;
+      allEvents = allEvents.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      page++;
+    }
 
-    if (!allEvents || allEvents.length === 0) {
+    if (allEvents.length === 0) {
       return NextResponse.json({ synced: 0, message: "Nenhum evento com email" });
     }
 
