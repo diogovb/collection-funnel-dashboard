@@ -203,7 +203,7 @@ export default function Dashboard() {
     const platforms = new Map<string, number>();
     const methods = new Map<string, number>();
 
-    for (const j of journeys) {
+    for (const j of journeys.filter(j => j.stepsCompleted.has("signup_completed"))) {
       if (j.profession) {
         const label = PROFESSION_LABELS[j.profession] || j.profession;
         profs.set(label, (profs.get(label) || 0) + 1);
