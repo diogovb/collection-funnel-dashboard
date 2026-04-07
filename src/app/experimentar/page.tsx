@@ -128,6 +128,8 @@ export default function ExperimentarDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(0);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const LEADS_PER_PAGE = 25;
 
   const dateFrom = useMemo(() => {
@@ -175,6 +177,24 @@ export default function ExperimentarDashboard() {
     setLastRefresh(new Date());
     setLoading(false);
   }, [dateFrom]);
+
+  const handleDeleteLead = useCallback(async () => {
+    if (!selectedLead) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/delete-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedLead.id }),
+      });
+      if (!res.ok) throw new Error("Falha ao deletar");
+      setLeads(prev => prev.filter(l => l.id !== selectedLead.id));
+      setSelectedLead(null);
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedLead]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
   useEffect(() => {
@@ -485,7 +505,7 @@ export default function ExperimentarDashboard() {
       {selectedLead && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
-          onClick={() => setSelectedLead(null)}
+          onClick={() => { setSelectedLead(null); setConfirmDelete(false); }}
         >
           <div
             className="bg-gray-900 sm:rounded-2xl max-w-lg w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700"
@@ -496,7 +516,7 @@ export default function ExperimentarDashboard() {
                 <h3 className="text-lg font-semibold">{selectedLead.name || selectedLead.email || "Lead"}</h3>
                 <p className="text-xs text-gray-400">{formatDate(selectedLead.created_at)}</p>
               </div>
-              <button onClick={() => setSelectedLead(null)} className="text-gray-400 hover:text-white text-xl transition-colors">✕</button>
+              <button onClick={() => { setSelectedLead(null); setConfirmDelete(false); }} className="text-gray-400 hover:text-white text-xl transition-colors">✕</button>
             </div>
             <div className="p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(85vh-60px)] space-y-4">
               <div className="grid grid-cols-2 gap-2">
@@ -544,6 +564,38 @@ export default function ExperimentarDashboard() {
                   </div>
                 </div>
               )}
+
+              {/* Delete */}
+              <div className="pt-2 border-t border-gray-800">
+                {confirmDelete ? (
+                  <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 space-y-3">
+                    <p className="text-sm text-red-300 font-medium">Tem certeza que quer deletar este lead?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDeleteLead}
+                        disabled={deleting}
+                        className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                      >
+                        {deleting ? "Deletando..." : "Sim, deletar"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        disabled={deleting}
+                        className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-800/40 text-sm font-medium transition-all"
+                  >
+                    Deletar lead
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
