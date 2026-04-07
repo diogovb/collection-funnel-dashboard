@@ -88,7 +88,7 @@ interface Lead {
   state: string | null;
 }
 
-type DatePreset = "today" | "7d" | "30d" | "90d";
+type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -124,8 +124,11 @@ export default function ExperimentarDashboard() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<DatePreset>("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState("");
+  const [profFilter, setProfFilter] = useState("");
   const [page, setPage] = useState(0);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -136,8 +139,14 @@ export default function ExperimentarDashboard() {
     if (preset === "today") return todayStart();
     if (preset === "7d") return daysAgo(7);
     if (preset === "30d") return daysAgo(30);
+    if (preset === "custom" && customFrom) return new Date(customFrom).toISOString();
     return daysAgo(90);
-  }, [preset]);
+  }, [preset, customFrom]);
+
+  const dateTo = useMemo(() => {
+    if (preset === "custom" && customTo) return new Date(customTo + "T23:59:59").toISOString();
+    return new Date().toISOString();
+  }, [preset, customTo]);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -150,7 +159,7 @@ export default function ExperimentarDashboard() {
         .select("id, email, created_at, metadata")
         .eq("event", "experimentar_lead")
         .gte("created_at", dateFrom)
-        .lte("created_at", new Date().toISOString())
+        .lte("created_at", dateTo)
         .order("created_at", { ascending: false })
         .range(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE - 1);
       if (error || !data) break;
@@ -176,7 +185,7 @@ export default function ExperimentarDashboard() {
     setLeads(parsed);
     setLastRefresh(new Date());
     setLoading(false);
-  }, [dateFrom]);
+  }, [dateFrom, dateTo]);
 
   const handleDeleteLead = useCallback(async () => {
     if (!selectedLead) return;
@@ -257,16 +266,44 @@ export default function ExperimentarDashboard() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [leads]);
 
+  // ─── Leads per day (last 30 days) ──────────────────────────────────────────
+  const leadsByDay = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leads) {
+      const day = l.created_at.slice(0, 10);
+      map.set(day, (map.get(day) || 0) + 1);
+    }
+    const days: { day: string; count: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      days.push({ day: key, count: map.get(key) || 0 });
+    }
+    return days;
+  }, [leads]);
+  const maxDayCount = useMemo(() => Math.max(...leadsByDay.map(d => d.count), 1), [leadsByDay]);
+
+  // ─── All professions for filter ────────────────────────────────────────────
+  const allProfessions = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of leads) if (l.profession) set.add(l.profession);
+    return Array.from(set);
+  }, [leads]);
+
   const filteredLeads = useMemo(() => {
-    if (!searchTerm) return leads;
-    const q = searchTerm.toLowerCase();
-    return leads.filter(l =>
-      l.name?.toLowerCase().includes(q) ||
-      l.email?.toLowerCase().includes(q) ||
-      l.phone?.includes(q) ||
-      l.profession?.toLowerCase().includes(q)
-    );
-  }, [leads, searchTerm]);
+    let list = leads;
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(l =>
+        l.name?.toLowerCase().includes(q) ||
+        l.email?.toLowerCase().includes(q) ||
+        l.phone?.includes(q)
+      );
+    }
+    if (profFilter) list = list.filter(l => l.profession === profFilter);
+    return list;
+  }, [leads, searchTerm, profFilter]);
 
   const pagedLeads = filteredLeads.slice(page * LEADS_PER_PAGE, (page + 1) * LEADS_PER_PAGE);
   const totalPages = Math.ceil(filteredLeads.length / LEADS_PER_PAGE);
@@ -292,7 +329,7 @@ export default function ExperimentarDashboard() {
 
         {/* Date filters */}
         <div className="flex flex-wrap items-center gap-2">
-          {(["today", "7d", "30d", "90d"] as DatePreset[]).map(p => (
+          {(["today", "7d", "30d", "90d", "custom"] as DatePreset[]).map(p => (
             <button
               key={p}
               onClick={() => { setPreset(p); setPage(0); }}
@@ -302,9 +339,16 @@ export default function ExperimentarDashboard() {
                   : "bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50"
               }`}
             >
-              {p === "today" ? "Hoje" : p}
+              {p === "today" ? "Hoje" : p === "custom" ? "Custom" : p}
             </button>
           ))}
+          {preset === "custom" && (
+            <div className="flex items-center gap-2">
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm" />
+              <span className="text-gray-500">até</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm" />
+            </div>
+          )}
           <button
             onClick={fetchLeads}
             className="ml-auto px-3 py-1.5 rounded-lg text-sm bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50"
@@ -339,6 +383,40 @@ export default function ExperimentarDashboard() {
             sub={leads.length > 0 ? `${((desktopCount / leads.length) * 100).toFixed(0)}% do total` : "—"}
             color="#f59e0b"
           />
+        </div>
+
+        {/* Leads per day chart */}
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Leads por dia (últimos 30 dias)</h2>
+          <div className="flex items-end gap-0.5 h-28 overflow-x-auto pb-5">
+            {leadsByDay.map(({ day, count }) => {
+              const heightPct = maxDayCount > 0 ? (count / maxDayCount) * 100 : 0;
+              const label = new Date(day + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+              return (
+                <div key={day} className="flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative">
+                  {count > 0 && (
+                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                      {label}: {count}
+                    </div>
+                  )}
+                  <div className="w-full flex items-end h-20">
+                    <div
+                      className="w-full rounded-t transition-all duration-500"
+                      style={{
+                        height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
+                        minHeight: count > 0 ? "3px" : "0",
+                        background: "linear-gradient(180deg, #6366f1, #a855f7)",
+                        opacity: count > 0 ? 1 : 0.1,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-gray-600 rotate-45 origin-left whitespace-nowrap translate-x-1">
+                    {label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Segmentation */}
@@ -414,15 +492,27 @@ export default function ExperimentarDashboard() {
 
         {/* Leads table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-            <h2 className="text-base sm:text-lg font-semibold">Leads ({formatNumber(filteredLeads.length)})</h2>
-            <input
-              type="text"
-              placeholder="Buscar por nome, email ou telefone..."
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm w-full sm:w-80 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
+            <h2 className="text-base sm:text-lg font-semibold shrink-0">Leads ({formatNumber(filteredLeads.length)})</h2>
+            <div className="flex flex-1 flex-col sm:flex-row gap-2 w-full">
+              <input
+                type="text"
+                placeholder="Buscar por nome, email ou telefone..."
+                value={searchTerm}
+                onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
+                className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={profFilter}
+                onChange={e => { setProfFilter(e.target.value); setPage(0); }}
+                className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Todas as profissões</option>
+                {allProfessions.map(p => (
+                  <option key={p} value={p}>{PROFESSION_LABELS[p] || p}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {loading && leads.length === 0 ? (
