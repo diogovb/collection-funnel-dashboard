@@ -90,6 +90,12 @@ interface Lead {
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
+type DrillFilter = {
+  type: "profession" | "platform" | "state" | "domain" | "hour" | "day";
+  value: string;
+  label: string;
+} | null;
+
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -133,6 +139,8 @@ export default function ExperimentarDashboard() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
+  const [view, setView] = useState<"dashboard" | "drillList" | "leadDetail">("dashboard");
   const LEADS_PER_PAGE = 25;
 
   const dateFrom = useMemo(() => {
@@ -305,6 +313,28 @@ export default function ExperimentarDashboard() {
     return list;
   }, [leads, searchTerm, profFilter]);
 
+  const drillLeads = useMemo(() => {
+    if (!drillFilter) return [];
+    return leads.filter(l => {
+      switch (drillFilter.type) {
+        case "profession":
+          return (PROFESSION_LABELS[l.profession] || l.profession || "Não informado") === drillFilter.value;
+        case "platform":
+          return (l.platform === "mobile" ? "Mobile" : l.platform ? "Desktop" : "Não informado") === drillFilter.value;
+        case "state":
+          return (l.state ?? "Não identificado") === drillFilter.value;
+        case "domain":
+          return l.email.split("@")[1]?.toLowerCase() === drillFilter.value;
+        case "hour":
+          return new Date(l.created_at).getHours() === parseInt(drillFilter.value);
+        case "day":
+          return l.created_at.slice(0, 10) === drillFilter.value;
+        default:
+          return false;
+      }
+    });
+  }, [leads, drillFilter]);
+
   const pagedLeads = filteredLeads.slice(page * LEADS_PER_PAGE, (page + 1) * LEADS_PER_PAGE);
   const totalPages = Math.ceil(filteredLeads.length / LEADS_PER_PAGE);
   const maxHour = Math.max(...hourlyDist, 1);
@@ -393,7 +423,11 @@ export default function ExperimentarDashboard() {
               const heightPct = maxDayCount > 0 ? (count / maxDayCount) * 100 : 0;
               const label = new Date(day + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
               return (
-                <div key={day} className="flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative">
+                <div
+                  key={day}
+                  className={`flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative ${count > 0 ? "cursor-pointer" : ""}`}
+                  onClick={() => { if (count > 0) { setDrillFilter({ type: "day", value: day, label }); setView("drillList"); } }}
+                >
                   {count > 0 && (
                     <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                       {label}: {count}
@@ -401,7 +435,7 @@ export default function ExperimentarDashboard() {
                   )}
                   <div className="w-full flex items-end h-20">
                     <div
-                      className="w-full rounded-t transition-all duration-500"
+                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
                       style={{
                         height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
                         minHeight: count > 0 ? "3px" : "0",
@@ -421,9 +455,25 @@ export default function ExperimentarDashboard() {
 
         {/* Segmentation */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <SegCard title="Profissão" data={professionSeg.slice(0, 6)} />
-          <SegCard title="Dispositivo" data={deviceSeg} />
-          <SegCard title="Estado (DDD)" data={stateSeg.slice(0, 6)} />
+          <SegCard
+            title="Profissão"
+            data={professionSeg.slice(0, 6)}
+            onItemClick={(label) => { setDrillFilter({ type: "profession", value: label, label }); setView("drillList"); }}
+          />
+          <SegCard
+            title="Dispositivo"
+            data={deviceSeg}
+            onItemClick={(label) => { setDrillFilter({ type: "platform", value: label, label }); setView("drillList"); }}
+          />
+          <SegCard
+            title="Estado (DDD)"
+            data={stateSeg.slice(0, 6)}
+            onItemClick={(label) => {
+              const code = label.split(" — ")[0];
+              setDrillFilter({ type: "state", value: code, label });
+              setView("drillList");
+            }}
+          />
         </div>
 
         {/* Hourly distribution */}
@@ -436,9 +486,13 @@ export default function ExperimentarDashboard() {
               {hourlyDist.map((count, h) => {
                 const heightPct = maxHour > 0 ? (count / maxHour) * 100 : 0;
                 return (
-                  <div key={h} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+                  <div
+                    key={h}
+                    className={`flex-1 flex flex-col items-center gap-0.5 group relative ${count > 0 ? "cursor-pointer" : ""}`}
+                    onClick={() => { if (count > 0) { setDrillFilter({ type: "hour", value: String(h), label: `${h}h` }); setView("drillList"); } }}
+                  >
                     <div
-                      className="w-full rounded-t transition-all duration-500"
+                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
                       style={{
                         height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
                         minHeight: count > 0 ? "3px" : undefined,
@@ -476,7 +530,11 @@ export default function ExperimentarDashboard() {
               {emailDomains.map(([domain, count], i) => {
                 const pct = leads.length > 0 ? ((count / leads.length) * 100).toFixed(1) : "0";
                 return (
-                  <div key={domain} className="bg-gray-800/40 rounded-xl p-3 hover:bg-gray-800/60 transition-colors">
+                  <div
+                    key={domain}
+                    className="bg-gray-800/40 rounded-xl p-3 hover:bg-gray-800/60 transition-colors cursor-pointer"
+                    onClick={() => { setDrillFilter({ type: "domain", value: domain, label: domain }); setView("drillList"); }}
+                  >
                     <div className="flex items-center gap-1.5 mb-1">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
                       <span className="text-xs text-gray-300 truncate font-medium">{domain}</span>
@@ -530,7 +588,7 @@ export default function ExperimentarDashboard() {
                   <div
                     key={l.id}
                     className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all group"
-                    onClick={() => setSelectedLead(l)}
+                    onClick={() => { setSelectedLead(l); setView("leadDetail"); }}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -592,21 +650,31 @@ export default function ExperimentarDashboard() {
       </div>
 
       {/* Lead detail modal */}
-      {selectedLead && (
+      {view === "leadDetail" && selectedLead && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
-          onClick={() => { setSelectedLead(null); setConfirmDelete(false); }}
+          onClick={() => { setSelectedLead(null); setConfirmDelete(false); setView(drillFilter ? "drillList" : "dashboard"); }}
         >
           <div
             className="bg-gray-900 sm:rounded-2xl max-w-lg w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <div>
-                <h3 className="text-lg font-semibold">{selectedLead.name || selectedLead.email || "Lead"}</h3>
-                <p className="text-xs text-gray-400">{formatDate(selectedLead.created_at)}</p>
+              <div className="flex items-center gap-3 min-w-0">
+                {drillFilter && (
+                  <button
+                    onClick={() => { setSelectedLead(null); setConfirmDelete(false); setView("drillList"); }}
+                    className="shrink-0 text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1"
+                  >
+                    ← Voltar
+                  </button>
+                )}
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold truncate">{selectedLead.name || selectedLead.email || "Lead"}</h3>
+                  <p className="text-xs text-gray-400">{formatDate(selectedLead.created_at)}</p>
+                </div>
               </div>
-              <button onClick={() => { setSelectedLead(null); setConfirmDelete(false); }} className="text-gray-400 hover:text-white text-xl transition-colors">✕</button>
+              <button onClick={() => { setSelectedLead(null); setConfirmDelete(false); setView(drillFilter ? "drillList" : "dashboard"); }} className="text-gray-400 hover:text-white text-xl transition-colors shrink-0">✕</button>
             </div>
             <div className="p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(85vh-60px)] space-y-4">
               <div className="grid grid-cols-2 gap-2">
@@ -690,6 +758,73 @@ export default function ExperimentarDashboard() {
           </div>
         </div>
       )}
+
+      {/* Drill list modal */}
+      {view === "drillList" && drillFilter && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-40"
+          onClick={() => { setDrillFilter(null); setView("dashboard"); }}
+        >
+          <div
+            className="bg-gray-900 sm:rounded-2xl max-w-lg w-full h-full sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden border-0 sm:border border-gray-700"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 p-4 border-b border-gray-700 shrink-0">
+              <button
+                onClick={() => { setDrillFilter(null); setView("dashboard"); }}
+                className="text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1 shrink-0"
+              >
+                ← Voltar
+              </button>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold truncate">Leads — {drillFilter.label}</h3>
+                <p className="text-xs text-gray-500">{drillLeads.length} lead{drillLeads.length !== 1 ? "s" : ""}</p>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 p-3 space-y-2">
+              {drillLeads.length === 0 ? (
+                <p className="text-sm text-gray-500 py-8 text-center">Nenhum lead encontrado</p>
+              ) : (
+                drillLeads.map(l => (
+                  <div
+                    key={l.id}
+                    className="bg-gray-800/40 rounded-lg p-3 hover:bg-gray-800/70 cursor-pointer transition-all group"
+                    onClick={() => { setSelectedLead(l); setView("leadDetail"); }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
+                            {l.name || l.email || "Sem nome"}
+                          </span>
+                          {l.state && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">{l.state}</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">{l.email || "Sem email"}</p>
+                        {l.phone && (
+                          <a
+                            href={waLink(l.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-green-500 hover:text-green-400 mt-0.5 inline-block"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            {l.phone}
+                          </a>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 shrink-0 text-right">
+                        <div>{formatDate(l.created_at)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -711,7 +846,11 @@ function MetricCard({ label, value, sub, color }: {
   );
 }
 
-function SegCard({ title, data }: { title: string; data: [string, number][] }) {
+function SegCard({ title, data, onItemClick }: {
+  title: string;
+  data: [string, number][];
+  onItemClick?: (label: string) => void;
+}) {
   const total = data.reduce((acc, [, v]) => acc + v, 0);
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50">
@@ -721,11 +860,15 @@ function SegCard({ title, data }: { title: string; data: [string, number][] }) {
           <p className="text-xs text-gray-500">Sem dados</p>
         ) : (
           data.map(([label, value], i) => (
-            <div key={label}>
+            <div
+              key={label}
+              className={onItemClick ? "cursor-pointer group/seg" : ""}
+              onClick={() => onItemClick?.(label)}
+            >
               <div className="flex items-center justify-between text-xs mb-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
-                  <span className="truncate text-gray-300">{label}</span>
+                  <span className="truncate text-gray-300 group-hover/seg:text-white transition-colors">{label}</span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
                   <span className="font-medium text-gray-200">{formatNumber(value)}</span>
@@ -735,7 +878,7 @@ function SegCard({ title, data }: { title: string; data: [string, number][] }) {
               </div>
               <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all duration-700"
+                  className="h-full rounded-full transition-all duration-700 group-hover/seg:brightness-125"
                   style={{
                     width: `${total > 0 ? (value / total) * 100 : 0}%`,
                     backgroundColor: SEG_COLORS[i % SEG_COLORS.length],
