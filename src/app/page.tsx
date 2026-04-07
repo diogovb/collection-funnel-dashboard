@@ -190,7 +190,11 @@ export default function Dashboard() {
   const funnelCounts = useMemo(() => {
     return FUNNEL_STEPS.map(s => ({
       ...s,
-      count: journeys.filter(j => j.stepsCompleted.has(s.key)).length,
+      // first_download only counts users who also have signup_completed (real funnel)
+      count: journeys.filter(j =>
+        j.stepsCompleted.has(s.key) &&
+        (s.key === "signup_completed" || j.stepsCompleted.has("signup_completed"))
+      ).length,
     }));
   }, [journeys]);
 

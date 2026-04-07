@@ -51,12 +51,13 @@ export async function GET() {
     }
 
     const downloadedEmails = new Set<string>();
-    const allEmails = new Set<string>();
+    const signupEmails = new Set<string>();
     for (const ev of allEvents) {
-      if (ev.email) allEmails.add(ev.email);
+      if (ev.event === "signup_completed" && ev.email) signupEmails.add(ev.email);
       if (ev.event === "first_download" && ev.email) downloadedEmails.add(ev.email);
     }
-    const toCheck = [...allEmails].filter(email => !downloadedEmails.has(email));
+    // Only sync downloads for users who went through onboarding (have signup_completed)
+    const toCheck = [...signupEmails].filter(email => !downloadedEmails.has(email));
 
     if (toCheck.length === 0) {
       return NextResponse.json({ synced: 0, message: "Todos já sincronizados" });
