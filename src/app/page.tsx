@@ -37,6 +37,7 @@ interface UserJourney {
   profession: string;
   method: string;
   platform: string;
+  phone: string;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -153,7 +154,7 @@ export default function Dashboard() {
       if (!map.has(key)) {
         map.set(key, {
           key,
-          name: "", email: "", profession: "", method: "", platform: "",
+          name: "", email: "", profession: "", method: "", platform: "", phone: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -169,6 +170,7 @@ export default function Dashboard() {
       if (m.profession && !j.profession) j.profession = m.profession;
       if (m.method && !j.method && ev.event === "signup_completed") j.method = m.method;
       if (m.platform && !j.platform) j.platform = m.platform;
+      if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
       if (FUNNEL_STEPS.some(s => s.key === ev.event)) j.stepsCompleted.add(ev.event);
       if (ev.created_at > j.lastSeen) j.lastSeen = ev.created_at;
       if (ev.created_at < j.firstSeen) j.firstSeen = ev.created_at;
@@ -459,6 +461,7 @@ export default function Dashboard() {
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
                 <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />
+                <Meta label="WhatsApp" value={selectedUser.phone || "—"} />
                 <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
               </div>
               <div>
