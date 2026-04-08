@@ -99,6 +99,19 @@ const PROFESSION_LABELS: Record<string, string> = {
   outro: "Outro",
 };
 
+const CRM_STAGES = [
+  { key: "novo", label: "Novo", color: "#6b7280", activeBg: "bg-gray-500", activeText: "text-white", inactiveBorder: "border-gray-500/60", inactiveText: "text-gray-400", badgeBg: "bg-gray-500/20", badgeText: "text-gray-300" },
+  { key: "contato_iniciado", label: "Contato iniciado", color: "#3b82f6", activeBg: "bg-blue-500", activeText: "text-white", inactiveBorder: "border-blue-500/60", inactiveText: "text-blue-400", badgeBg: "bg-blue-500/20", badgeText: "text-blue-300" },
+  { key: "em_conversa", label: "Em conversa", color: "#f59e0b", activeBg: "bg-amber-500", activeText: "text-white", inactiveBorder: "border-amber-500/60", inactiveText: "text-amber-400", badgeBg: "bg-amber-500/20", badgeText: "text-amber-300" },
+  { key: "ativado", label: "Ativado", color: "#84cc16", activeBg: "bg-lime-500", activeText: "text-white", inactiveBorder: "border-lime-500/60", inactiveText: "text-lime-400", badgeBg: "bg-lime-500/20", badgeText: "text-lime-300" },
+  { key: "em_negociacao", label: "Em negociação", color: "#a855f7", activeBg: "bg-purple-500", activeText: "text-white", inactiveBorder: "border-purple-500/60", inactiveText: "text-purple-400", badgeBg: "bg-purple-500/20", badgeText: "text-purple-300" },
+  { key: "convertido", label: "Convertido", color: "#22c55e", activeBg: "bg-green-500", activeText: "text-white", inactiveBorder: "border-green-500/60", inactiveText: "text-green-400", badgeBg: "bg-green-500/20", badgeText: "text-green-300" },
+] as const;
+
+function getCrmStage(key: string) {
+  return CRM_STAGES.find(s => s.key === key) ?? CRM_STAGES[0];
+}
+
 interface FunnelEvent {
   id: string;
   user_id: string;
@@ -130,11 +143,12 @@ interface UserJourney {
   firstSeen: string;
   lastSeen: string;
   allEvents: FunnelEvent[];
+  crmStage: string;
 }
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 function daysAgo(n: number): string {
@@ -171,6 +185,7 @@ export default function Dashboard() {
   const [view, setView] = useState<"dashboard" | "drillList" | "userDetail">("dashboard");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [updatingStage, setUpdatingStage] = useState(false);
   const USERS_PER_PAGE = 25;
 
   const dateFrom = useMemo(() => {
@@ -242,6 +257,29 @@ export default function Dashboard() {
     }
   }, [selectedUser, drillFilter]);
 
+  const handleUpdateStage = useCallback(async (stage: string) => {
+    if (!selectedUser?.id) return;
+    setUpdatingStage(true);
+    // Optimistic update
+    setSelectedUser(prev => prev ? { ...prev, crmStage: stage } : null);
+    setEvents(prev => prev.map(ev =>
+      ev.id === selectedUser.id
+        ? { ...ev, metadata: { ...(ev.metadata || {}), crm_stage: stage } }
+        : ev
+    ));
+    try {
+      await fetch("/api/update-stage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: selectedUser.id, stage }),
+      });
+    } catch {
+      // silent fail — next refresh will correct
+    } finally {
+      setUpdatingStage(false);
+    }
+  }, [selectedUser]);
+
   const journeys = useMemo(() => {
     const uidToEmail = new Map<string, string>();
     const sidToEmail = new Map<string, string>();
@@ -281,6 +319,7 @@ export default function Dashboard() {
           firstSeen: ev.created_at,
           lastSeen: ev.created_at,
           allEvents: [],
+          crmStage: "novo",
         });
       }
       const j = map.get(key)!;
@@ -298,6 +337,7 @@ export default function Dashboard() {
         if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
         if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;
         if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
+        if (m.crm_stage) j.crmStage = m.crm_stage as string;
       }
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
@@ -414,6 +454,16 @@ export default function Dashboard() {
 
   const hasCampaigns = campaignSeg.length > 0;
 
+  const crmStageSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of CRM_STAGES) map.set(s.key, 0);
+    for (const j of signupJourneys) {
+      const k = j.crmStage || "novo";
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    return CRM_STAGES.map(s => [s.label, map.get(s.key) || 0] as [string, number]);
+  }, [signupJourneys]);
+
   // ─── Drill journeys ─────────────────────────────────────────────────────────
   const drillJourneys = useMemo(() => {
     if (!drillFilter) return [];
@@ -450,6 +500,8 @@ export default function Dashboard() {
           return new Date(j.firstSeen).getHours() === parseInt(drillFilter.value);
         case "day":
           return j.firstSeen.slice(0, 10) === drillFilter.value;
+        case "crmStage":
+          return (j.crmStage || "novo") === drillFilter.value;
         default:
           return false;
       }
@@ -569,6 +621,17 @@ export default function Dashboard() {
           <SegCard title="Campanhas (UTM)" data={campaignSeg} onItemClick={(label) => openDrill("campaign", label, label)} />
         )}
 
+        {/* Pipeline CRM */}
+        <SegCard
+          title="Pipeline CRM"
+          data={crmStageSeg}
+          colors={CRM_STAGES.map(s => s.color)}
+          onItemClick={(label) => {
+            const stage = CRM_STAGES.find(s => s.label === label);
+            if (stage) openDrill("crmStage", stage.key, label);
+          }}
+        />
+
         {/* Email domains */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Domínios de email</h2>
@@ -669,6 +732,7 @@ export default function Dashboard() {
                           {j.whatBrought && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">{j.whatBrought}</span>
                           )}
+                          <CrmBadge stage={j.crmStage} />
                         </div>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                       </div>
@@ -773,6 +837,32 @@ export default function Dashboard() {
                 <UserActionsList email={selectedUser.email} />
               )}
 
+              {/* CRM Pipeline */}
+              {selectedUser.id && (
+                <div className="bg-gray-800/30 rounded-xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Pipeline CRM</div>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {CRM_STAGES.map(stage => {
+                      const isActive = (selectedUser.crmStage || "novo") === stage.key;
+                      return (
+                        <button
+                          key={stage.key}
+                          onClick={() => !updatingStage && handleUpdateStage(stage.key)}
+                          disabled={updatingStage}
+                          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                            isActive
+                              ? `${stage.activeBg} ${stage.activeText} border-transparent`
+                              : `bg-transparent ${stage.inactiveBorder} ${stage.inactiveText} hover:opacity-80`
+                          } disabled:opacity-50`}
+                        >
+                          {stage.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Delete */}
               {selectedUser.id && (
                 <div className="pt-2">
@@ -852,6 +942,7 @@ export default function Dashboard() {
                           {j.state && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">{j.state}</span>
                           )}
+                          <CrmBadge stage={j.crmStage} />
                         </div>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                         {j.phone && (
@@ -926,12 +1017,14 @@ function SummaryCard({ label, value, sub, conversion, color }: {
   );
 }
 
-function SegCard({ title, data, onItemClick }: {
+function SegCard({ title, data, onItemClick, colors }: {
   title: string;
   data: [string, number][];
   onItemClick?: (label: string) => void;
+  colors?: readonly string[];
 }) {
   const total = data.reduce((acc, [, v]) => acc + v, 0);
+  const palette = colors ?? SEG_COLORS;
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50">
       <h3 className="text-sm font-semibold text-gray-300 mb-3">{title}</h3>
@@ -947,7 +1040,7 @@ function SegCard({ title, data, onItemClick }: {
             >
               <div className="flex items-center justify-between text-xs mb-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: palette[i % palette.length] }} />
                   <span className="truncate text-gray-300 group-hover/seg:text-white transition-colors">{label}</span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -961,7 +1054,7 @@ function SegCard({ title, data, onItemClick }: {
                   className="h-full rounded-full transition-all duration-700 group-hover/seg:brightness-125"
                   style={{
                     width: `${total > 0 ? (value / total) * 100 : 0}%`,
-                    backgroundColor: SEG_COLORS[i % SEG_COLORS.length],
+                    backgroundColor: palette[i % palette.length],
                   }}
                 />
               </div>
@@ -979,5 +1072,15 @@ function Meta({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
       <div className="text-sm text-gray-200 mt-1 truncate">{value}</div>
     </div>
+  );
+}
+
+function CrmBadge({ stage }: { stage?: string }) {
+  const s = getCrmStage(stage || "novo");
+  if (s.key === "novo") return null;
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.badgeBg} ${s.badgeText}`}>
+      {s.label}
+    </span>
   );
 }
