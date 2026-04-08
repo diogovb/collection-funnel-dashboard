@@ -487,7 +487,7 @@ export default function Dashboard() {
   const allProfessions = useMemo(() => {
     const set = new Set<string>();
     for (const j of journeys) if (j.profession) set.add(j.profession);
-    return Array.from(set);
+    return Array.from(set).sort((a, b) => (PROFESSION_LABELS[a] || a).localeCompare(PROFESSION_LABELS[b] || b, "pt-BR"));
   }, [journeys]);
 
   const filteredJourneys = useMemo(() => {
