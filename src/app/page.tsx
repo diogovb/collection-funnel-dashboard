@@ -48,6 +48,16 @@ const STATE_NAMES: Record<string, string> = {
   TO: "Tocantins", AC: "Acre", AP: "Amapá", RR: "Roraima",
 };
 
+function extractReferrerDomain(referrer: string): string {
+  if (!referrer) return "Direto";
+  try {
+    const url = new URL(referrer);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return referrer.slice(0, 50) || "Direto";
+  }
+}
+
 function extractDDD(phone: string): string | null {
   if (!phone) return null;
   const digits = phone.replace(/\D/g, "");
@@ -68,13 +78,17 @@ function waLink(phone: string): string {
   return `https://wa.me/${number}`;
 }
 
+function formatNumber(n: number): string {
+  return n.toLocaleString("pt-BR");
+}
+
 const FUNNEL_STEPS = [
   { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
   { key: "first_download", label: "1º Download", icon: "📥", desc: "Baixaram o primeiro bloco" },
 ] as const;
 
 const FUNNEL_COLORS = ["#6366f1", "#a855f7"];
-const SEG_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#10B981", "#06B6D4"];
+const SEG_COLORS = ["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6", "#f97316"];
 
 const PROFESSION_LABELS: Record<string, string> = {
   arquiteto: "Arquiteto(a)",
@@ -96,6 +110,7 @@ interface FunnelEvent {
 
 interface UserJourney {
   key: string;
+  id: string; // id of the signup_completed event (for delete)
   name: string;
   email: string;
   profession: string;
@@ -105,6 +120,10 @@ interface UserJourney {
   software: string;
   whatBrought: string;
   state: string | null;
+  referrerDomain: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -115,12 +134,18 @@ interface UserJourney {
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
+  return d.toISOString();
+}
+
+function todayStart(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
   return d.toISOString();
 }
 
@@ -144,10 +169,12 @@ export default function Dashboard() {
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
   const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
   const [view, setView] = useState<"dashboard" | "drillList" | "userDetail">("dashboard");
-  const USERS_PER_PAGE = 20;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const USERS_PER_PAGE = 25;
 
   const dateFrom = useMemo(() => {
-    if (preset === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
+    if (preset === "today") return todayStart();
     if (preset === "7d") return daysAgo(7);
     if (preset === "30d") return daysAgo(30);
     if (preset === "90d") return daysAgo(90);
@@ -196,6 +223,25 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleDeleteUser = useCallback(async () => {
+    if (!selectedUser) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/delete-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedUser.id }),
+      });
+      if (!res.ok) throw new Error("Falha ao deletar");
+      setEvents(prev => prev.filter(ev => ev.id !== selectedUser.id));
+      setSelectedUser(null);
+      setConfirmDelete(false);
+      setView(drillFilter ? "drillList" : "dashboard");
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedUser, drillFilter]);
+
   const journeys = useMemo(() => {
     const uidToEmail = new Map<string, string>();
     const sidToEmail = new Map<string, string>();
@@ -226,8 +272,10 @@ export default function Dashboard() {
       if (!map.has(key)) {
         map.set(key, {
           key,
+          id: "",
           name: "", email: "", profession: "", method: "", platform: "", phone: "",
           software: "", whatBrought: "", state: null,
+          referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -241,11 +289,18 @@ export default function Dashboard() {
       if (m.name && !j.name) j.name = m.name;
       if (ev.email && !j.email) j.email = ev.email;
       if (m.profession && !j.profession) j.profession = m.profession;
-      if (m.method && !j.method && ev.event === "signup_completed") j.method = m.method;
+      if (ev.event === "signup_completed") {
+        if (!j.id) j.id = ev.id;
+        if (m.method && !j.method) j.method = m.method;
+        if (m.software && !j.software) j.software = m.software;
+        if (m.what_brought && !j.whatBrought) j.whatBrought = m.what_brought;
+        if (m.referrer && j.referrerDomain === "Direto") j.referrerDomain = extractReferrerDomain(m.referrer);
+        if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
+        if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;
+        if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
+      }
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
-      if (m.software && !j.software && ev.event === "signup_completed") j.software = m.software;
-      if (m.what_brought && !j.whatBrought && ev.event === "signup_completed") j.whatBrought = m.what_brought;
       if (FUNNEL_STEPS.some(s => s.key === ev.event)) j.stepsCompleted.add(ev.event);
       if (ev.created_at > j.lastSeen) j.lastSeen = ev.created_at;
       if (ev.created_at < j.firstSeen) j.firstSeen = ev.created_at;
@@ -277,6 +332,45 @@ export default function Dashboard() {
 
   const signupJourneys = useMemo(() => journeys.filter(j => j.stepsCompleted.has("signup_completed")), [journeys]);
 
+  // ─── Metric cards ───────────────────────────────────────────────────────────
+  const todaySignups = useMemo(() => {
+    const start = todayStart();
+    return signupJourneys.filter(j => j.firstSeen >= start).length;
+  }, [signupJourneys]);
+
+  const mobileCount = useMemo(() => signupJourneys.filter(j => j.platform === "mobile").length, [signupJourneys]);
+  const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
+
+  // ─── Cadastros per day (last 15 days) ────────────────────────────────────────
+  const signupsByDay = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of signupJourneys) {
+      const day = j.firstSeen.slice(0, 10);
+      map.set(day, (map.get(day) || 0) + 1);
+    }
+    const days: { day: string; count: number }[] = [];
+    for (let i = 14; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      days.push({ day: key, count: map.get(key) || 0 });
+    }
+    return days;
+  }, [signupJourneys]);
+  const maxDayCount = useMemo(() => Math.max(...signupsByDay.map(d => d.count), 1), [signupsByDay]);
+
+  // ─── Hourly distribution ────────────────────────────────────────────────────
+  const hourlyDist = useMemo(() => {
+    const counts = Array(24).fill(0) as number[];
+    for (const j of signupJourneys) {
+      const h = new Date(j.firstSeen).getHours();
+      counts[h]++;
+    }
+    return counts;
+  }, [signupJourneys]);
+  const maxHour = useMemo(() => Math.max(...hourlyDist, 1), [hourlyDist]);
+
+  // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
     const profs = new Map<string, number>();
     const platforms = new Map<string, number>();
@@ -317,6 +411,39 @@ export default function Dashboard() {
     };
   }, [signupJourneys]);
 
+  // ─── Email domains ──────────────────────────────────────────────────────────
+  const emailDomains = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of signupJourneys) {
+      if (!j.email) continue;
+      const domain = j.email.split("@")[1]?.toLowerCase() || "desconhecido";
+      map.set(domain, (map.get(domain) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [signupJourneys]);
+
+  // ─── Referrer & campaigns ───────────────────────────────────────────────────
+  const referrerSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of signupJourneys) {
+      map.set(j.referrerDomain, (map.get(j.referrerDomain) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [signupJourneys]);
+
+  const campaignSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of signupJourneys) {
+      if (!j.utmSource) continue;
+      const key = j.utmCampaign ? `${j.utmSource} / ${j.utmCampaign}` : j.utmSource;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [signupJourneys]);
+
+  const hasCampaigns = campaignSeg.length > 0;
+
+  // ─── Drill journeys ─────────────────────────────────────────────────────────
   const drillJourneys = useMemo(() => {
     if (!drillFilter) return [];
     if (drillFilter.type === "step") {
@@ -339,6 +466,18 @@ export default function Dashboard() {
           return (j.whatBrought || "Não informado") === drillFilter.value;
         case "state":
           return (j.state ?? null) === drillFilter.value;
+        case "referrer":
+          return j.referrerDomain === drillFilter.value;
+        case "campaign": {
+          const key = j.utmCampaign ? `${j.utmSource} / ${j.utmCampaign}` : j.utmSource;
+          return key === drillFilter.value;
+        }
+        case "domain":
+          return j.email.split("@")[1]?.toLowerCase() === drillFilter.value;
+        case "hour":
+          return new Date(j.firstSeen).getHours() === parseInt(drillFilter.value);
+        case "day":
+          return j.firstSeen.slice(0, 10) === drillFilter.value;
         default:
           return false;
       }
@@ -352,14 +491,14 @@ export default function Dashboard() {
   }, [journeys]);
 
   const filteredJourneys = useMemo(() => {
-    let list = journeys;
+    let list = signupJourneys;
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
-      list = list.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.profession?.toLowerCase().includes(q));
+      list = list.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.phone?.includes(q));
     }
     if (profFilter) list = list.filter(j => j.profession === profFilter);
     return list;
-  }, [journeys, searchTerm, profFilter]);
+  }, [signupJourneys, searchTerm, profFilter]);
 
   const pagedJourneys = filteredJourneys.slice(userPage * USERS_PER_PAGE, (userPage + 1) * USERS_PER_PAGE);
   const totalPages = Math.ceil(filteredJourneys.length / USERS_PER_PAGE);
@@ -413,8 +552,26 @@ export default function Dashboard() {
           <button onClick={fetchEvents} className="ml-auto px-3 py-1.5 rounded-lg text-sm bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50">↻</button>
         </div>
 
-        {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        {/* Metric cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+          <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" />
+          <MetricCard label="Cadastros hoje" value={formatNumber(todaySignups)} sub="desde meia-noite" color="#a855f7" />
+          <MetricCard
+            label="Mobile"
+            value={formatNumber(mobileCount)}
+            sub={signupJourneys.length > 0 ? `${((mobileCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
+            color="#ec4899"
+          />
+          <MetricCard
+            label="Desktop"
+            value={formatNumber(desktopCount)}
+            sub={signupJourneys.length > 0 ? `${((desktopCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
+            color="#f59e0b"
+          />
+        </div>
+
+        {/* Funnel summary cards */}
+        <div className="grid grid-cols-2 gap-2 sm:gap-4">
           {funnelCounts.map((step, i) => {
             const prev = i > 0 ? funnelCounts[i - 1].count : null;
             const conv = prev !== null && prev > 0 ? ((step.count / prev) * 100).toFixed(1) + "%" : null;
@@ -447,21 +604,13 @@ export default function Dashboard() {
                     <div className="flex items-center justify-center py-3 gap-3">
                       <div className="flex-1 border-t border-dashed border-gray-800" />
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 font-medium">
-                          ↓ {convRate}%
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-red-900/30 text-red-400">
-                          {dropRate}% saíram
-                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 font-medium">↓ {convRate}%</span>
+                        <span className="px-2 py-0.5 rounded-full bg-red-900/30 text-red-400">{dropRate}% saíram</span>
                       </div>
                       <div className="flex-1 border-t border-dashed border-gray-800" />
                     </div>
                   )}
-
-                  <div
-                    className="cursor-pointer group"
-                    onClick={() => openDrill("step", step.key, step.label)}
-                  >
+                  <div className="cursor-pointer group" onClick={() => openDrill("step", step.key, step.label)}>
                     <div className="flex items-center gap-3 mb-1.5 px-1">
                       <span className="text-base">{step.icon}</span>
                       <span className="text-sm font-medium" style={{ color: FUNNEL_COLORS[i] }}>{step.label}</span>
@@ -490,37 +639,53 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Cadastros per day chart */}
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Cadastros por dia (últimos 15 dias)</h2>
+          <div className="flex items-end gap-0.5 h-28 overflow-x-auto pb-5">
+            {signupsByDay.map(({ day, count }) => {
+              const heightPct = maxDayCount > 0 ? (count / maxDayCount) * 100 : 0;
+              const label = new Date(day + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+              return (
+                <div
+                  key={day}
+                  className={`flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative ${count > 0 ? "cursor-pointer" : ""}`}
+                  onClick={() => { if (count > 0) { openDrill("day", day, label); } }}
+                >
+                  {count > 0 && (
+                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                      {label}: {count}
+                    </div>
+                  )}
+                  <div className="w-full flex items-end h-20">
+                    <div
+                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
+                      style={{
+                        height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
+                        minHeight: count > 0 ? "3px" : "0",
+                        background: "linear-gradient(180deg, #6366f1, #a855f7)",
+                        opacity: count > 0 ? 1 : 0.1,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-gray-600 rotate-45 origin-left whitespace-nowrap translate-x-1">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Segmentation row 1 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <SegCard
-            title="Plataforma"
-            data={analytics.platforms}
-            onItemClick={(label) => openDrill("platform", label, label)}
-          />
-          <SegCard
-            title="Método de cadastro"
-            data={analytics.methods}
-            onItemClick={(label) => openDrill("method", label, label)}
-          />
-          <SegCard
-            title="Profissão"
-            data={analytics.professions.slice(0, 6)}
-            onItemClick={(label) => openDrill("profession", label, label)}
-          />
+          <SegCard title="Plataforma" data={analytics.platforms} onItemClick={(label) => openDrill("platform", label, label)} />
+          <SegCard title="Método de cadastro" data={analytics.methods} onItemClick={(label) => openDrill("method", label, label)} />
+          <SegCard title="Profissão" data={analytics.professions.slice(0, 6)} onItemClick={(label) => openDrill("profession", label, label)} />
         </div>
 
         {/* Segmentation row 2 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <SegCard
-            title="Software"
-            data={analytics.softwares.slice(0, 6)}
-            onItemClick={(label) => openDrill("software", label, label)}
-          />
-          <SegCard
-            title="Interesse (what_brought)"
-            data={analytics.whatBroughts.slice(0, 6)}
-            onItemClick={(label) => openDrill("whatBrought", label, label)}
-          />
+          <SegCard title="Software" data={analytics.softwares.slice(0, 6)} onItemClick={(label) => openDrill("software", label, label)} />
+          <SegCard title="Interesse" data={analytics.whatBroughts.slice(0, 6)} onItemClick={(label) => openDrill("whatBrought", label, label)} />
           <SegCard
             title="Estado (DDD)"
             data={analytics.states.slice(0, 6)}
@@ -531,19 +696,94 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Origin & Campaigns */}
+        <div className={`grid grid-cols-1 ${hasCampaigns ? "sm:grid-cols-2" : ""} gap-4`}>
+          <SegCard title="Origem" data={referrerSeg} onItemClick={(label) => openDrill("referrer", label, label)} />
+          {hasCampaigns && (
+            <SegCard title="Campanhas (UTM)" data={campaignSeg} onItemClick={(label) => openDrill("campaign", label, label)} />
+          )}
+        </div>
+
+        {/* Hourly distribution */}
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Distribuição por hora do dia</h2>
+          {signupJourneys.length === 0 && !loading ? (
+            <p className="text-xs text-gray-500">Sem dados</p>
+          ) : (
+            <div className="flex items-end gap-1 h-24">
+              {hourlyDist.map((count, h) => {
+                const heightPct = maxHour > 0 ? (count / maxHour) * 100 : 0;
+                return (
+                  <div
+                    key={h}
+                    className={`flex-1 flex flex-col items-center gap-0.5 group relative ${count > 0 ? "cursor-pointer" : ""}`}
+                    onClick={() => { if (count > 0) { openDrill("hour", String(h), `${h}h`); } }}
+                  >
+                    <div
+                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
+                      style={{
+                        height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
+                        minHeight: count > 0 ? "3px" : undefined,
+                        background: "linear-gradient(180deg, #6366f1, #a855f7)",
+                        opacity: count > 0 ? 1 : 0.15,
+                      }}
+                    />
+                    {count > 0 && (
+                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        {h}h: {count}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+            <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
+          </div>
+        </div>
+
+        {/* Email domains */}
+        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Domínios de email</h2>
+          {emailDomains.length === 0 ? (
+            <p className="text-xs text-gray-500">Sem dados</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {emailDomains.map(([domain, count], i) => {
+                const pct = signupJourneys.length > 0 ? ((count / signupJourneys.length) * 100).toFixed(1) : "0";
+                return (
+                  <div
+                    key={domain}
+                    className="bg-gray-800/40 rounded-xl p-3 hover:bg-gray-800/60 transition-colors cursor-pointer"
+                    onClick={() => openDrill("domain", domain, domain)}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
+                      <span className="text-xs text-gray-300 truncate font-medium">{domain}</span>
+                    </div>
+                    <div className="text-xl font-bold tabular-nums">{formatNumber(count)}</div>
+                    <div className="text-xs text-gray-500">{pct}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Automations */}
         <div className="bg-gray-900/50 rounded-2xl p-3 sm:p-6 border border-gray-800">
           <AutomationPanel />
         </div>
 
-        {/* User list */}
+        {/* Cadastros table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
-            <h2 className="text-base sm:text-lg font-semibold shrink-0">Usuários ({filteredJourneys.length})</h2>
+            <h2 className="text-base sm:text-lg font-semibold shrink-0">Cadastros ({formatNumber(filteredJourneys.length)})</h2>
             <div className="flex flex-1 flex-col sm:flex-row gap-2 w-full">
               <input
                 type="text"
-                placeholder="Buscar por nome ou email..."
+                placeholder="Buscar por nome, email ou telefone..."
                 value={searchTerm}
                 onChange={e => { setSearchTerm(e.target.value); setUserPage(0); }}
                 className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -560,42 +800,63 @@ export default function Dashboard() {
               </select>
             </div>
           </div>
-          <div className="space-y-2">
-            {pagedJourneys.map(j => (
-              <div
-                key={j.key}
-                className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all group"
-                onClick={() => { setSelectedUser(j); setView("userDetail"); }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
-                        {j.name || j.email || j.key.slice(0, 8) + "…"}
-                      </span>
-                      {j.profession && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
-                          {PROFESSION_LABELS[j.profession] || j.profession}
-                        </span>
-                      )}
-                      {j.platform && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300">
-                          {j.platform === "mobile" ? "Mobile" : "Desktop"}
-                        </span>
-                      )}
-                      {j.state && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
-                          {j.state}
-                        </span>
-                      )}
+
+          {loading && signupJourneys.length === 0 ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-14 bg-gray-800/30 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pagedJourneys.length === 0 ? (
+                <p className="text-sm text-gray-500 py-4 text-center">Nenhum cadastro encontrado</p>
+              ) : (
+                pagedJourneys.map(j => (
+                  <div
+                    key={j.key}
+                    className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all group"
+                    onClick={() => { setSelectedUser(j); setView("userDetail"); }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
+                            {j.name || j.email || "Sem nome"}
+                          </span>
+                          {j.profession && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                              {PROFESSION_LABELS[j.profession] || j.profession}
+                            </span>
+                          )}
+                          {j.platform && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300">
+                              {j.platform === "mobile" ? "Mobile" : "Desktop"}
+                            </span>
+                          )}
+                          {j.state && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">{j.state}</span>
+                          )}
+                          {j.software && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">{j.software}</span>
+                          )}
+                          {j.whatBrought && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">{j.whatBrought}</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
+                      </div>
+                      <div className="text-xs text-gray-500 shrink-0 text-right">
+                        <div>{j.lastStepLabel || "—"}</div>
+                        <div className="text-gray-600 mt-0.5">{formatDate(j.firstSeen)}</div>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                   </div>
-                  <div className="text-xs text-gray-500 shrink-0">{j.lastStepLabel || "—"}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+                ))
+              )}
+            </div>
+          )}
+
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-800">
               <button
@@ -624,7 +885,7 @@ export default function Dashboard() {
       {view === "userDetail" && selectedUser && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
-          onClick={() => { setSelectedUser(null); setView(drillFilter ? "drillList" : "dashboard"); }}
+          onClick={() => { setSelectedUser(null); setConfirmDelete(false); setView(drillFilter ? "drillList" : "dashboard"); }}
         >
           <div
             className="bg-gray-900 sm:rounded-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700"
@@ -634,7 +895,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3 min-w-0">
                 {drillFilter && (
                   <button
-                    onClick={() => { setSelectedUser(null); setView("drillList"); }}
+                    onClick={() => { setSelectedUser(null); setConfirmDelete(false); setView("drillList"); }}
                     className="shrink-0 text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1"
                   >
                     ← Voltar
@@ -645,7 +906,10 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-400">{selectedUser.email || selectedUser.key}</p>
                 </div>
               </div>
-              <button onClick={() => { setSelectedUser(null); setView(drillFilter ? "drillList" : "dashboard"); }} className="text-gray-400 hover:text-white text-xl shrink-0">✕</button>
+              <button
+                onClick={() => { setSelectedUser(null); setConfirmDelete(false); setView(drillFilter ? "drillList" : "dashboard"); }}
+                className="text-gray-400 hover:text-white text-xl shrink-0"
+              >✕</button>
             </div>
             <div className="p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(85vh-60px)] space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -655,10 +919,10 @@ export default function Dashboard() {
                 <Meta label="Estado" value={selectedUser.state ? `${selectedUser.state} — ${STATE_NAMES[selectedUser.state] || ""}` : "—"} />
                 <Meta label="Software" value={selectedUser.software || "—"} />
                 <Meta label="Interesse" value={selectedUser.whatBrought || "—"} />
+                <Meta label="Origem" value={selectedUser.referrerDomain || "—"} />
                 <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
               </div>
 
-              {/* Phone + WhatsApp */}
               {selectedUser.phone && (
                 <div className="bg-gray-800/40 rounded-xl p-3 flex items-center justify-between gap-2">
                   <div>
@@ -697,9 +961,44 @@ export default function Dashboard() {
                   })}
                 </div>
               </div>
+
               {selectedUser.email && (
                 <div className="border-t border-gray-800 pt-3">
                   <UserActionsList email={selectedUser.email} />
+                </div>
+              )}
+
+              {/* Delete */}
+              {selectedUser.id && (
+                <div className="pt-2 border-t border-gray-800">
+                  {confirmDelete ? (
+                    <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 space-y-3">
+                      <p className="text-sm text-red-300 font-medium">Tem certeza que quer deletar este cadastro?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleDeleteUser}
+                          disabled={deleting}
+                          className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                          {deleting ? "Deletando..." : "Sim, deletar"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(false)}
+                          disabled={deleting}
+                          className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-800/40 text-sm font-medium transition-all"
+                    >
+                      Deletar cadastro
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -725,13 +1024,13 @@ export default function Dashboard() {
                 ← Voltar
               </button>
               <div className="min-w-0">
-                <h3 className="text-base font-semibold truncate">Usuários — {drillFilter.label}</h3>
-                <p className="text-xs text-gray-500">{drillJourneys.length} usuário{drillJourneys.length !== 1 ? "s" : ""}</p>
+                <h3 className="text-base font-semibold truncate">Cadastros — {drillFilter.label}</h3>
+                <p className="text-xs text-gray-500">{drillJourneys.length} cadastro{drillJourneys.length !== 1 ? "s" : ""}</p>
               </div>
             </div>
             <div className="overflow-y-auto flex-1 p-3 space-y-2">
               {drillJourneys.length === 0 ? (
-                <p className="text-sm text-gray-500 py-8 text-center">Nenhum usuário encontrado</p>
+                <p className="text-sm text-gray-500 py-8 text-center">Nenhum cadastro encontrado</p>
               ) : (
                 drillJourneys.map(j => (
                   <div
@@ -777,6 +1076,19 @@ export default function Dashboard() {
   );
 }
 
+function MetricCard({ label, value, sub, color }: {
+  label: string; value: string; sub: string; color: string;
+}) {
+  return (
+    <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50 relative overflow-hidden">
+      <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ background: `radial-gradient(circle at 80% 20%, ${color}, transparent 60%)` }} />
+      <div className="text-2xl sm:text-3xl font-bold tabular-nums">{value}</div>
+      <div className="text-sm font-medium text-gray-200 mt-1">{label}</div>
+      <div className="text-xs text-gray-500 mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
 function SummaryCard({ label, value, sub, conversion, color }: {
   label: string; value: number; sub: string; conversion: string | null; color: string;
 }) {
@@ -818,7 +1130,7 @@ function SegCard({ title, data, onItemClick }: {
                   <span className="truncate text-gray-300 group-hover/seg:text-white transition-colors">{label}</span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <span className="font-medium text-gray-200">{value}</span>
+                  <span className="font-medium text-gray-200">{formatNumber(value)}</span>
                   <span className="text-gray-600">·</span>
                   <span className="text-gray-500">{total > 0 ? ((value / total) * 100).toFixed(0) : 0}%</span>
                 </div>
