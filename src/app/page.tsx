@@ -874,24 +874,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Eventos</p>
-                <div className="space-y-1.5">
-                  {selectedUser.allEvents.filter(ev => ["signup_completed", "first_download"].includes(ev.event)).map(ev => {
-                    const step = FUNNEL_STEPS.find(s => s.key === ev.event);
-                    return (
-                      <div key={ev.id} className="bg-gray-800/30 rounded-lg p-3 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">{step?.icon || "•"}</span>
-                          <span className="text-sm font-medium">{step?.label || ev.event}</span>
-                        </div>
-                        <span className="text-xs text-gray-500">{formatDate(ev.created_at)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
               {selectedUser.email && (
                 <div className="border-t border-gray-800 pt-3">
                   <UserActionsList email={selectedUser.email} />
