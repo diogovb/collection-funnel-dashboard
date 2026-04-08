@@ -553,9 +553,8 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" />
-          <MetricCard label="Cadastros hoje" value={formatNumber(todaySignups)} sub="desde meia-noite" color="#a855f7" />
           <MetricCard
             label="Mobile"
             value={formatNumber(mobileCount)}
