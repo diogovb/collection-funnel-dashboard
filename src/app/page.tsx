@@ -626,13 +626,10 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Origin & Campaigns */}
-        <div className={`grid grid-cols-1 ${hasCampaigns ? "sm:grid-cols-2" : ""} gap-4`}>
-          <SegCard title="Origem" data={referrerSeg} onItemClick={(label) => openDrill("referrer", label, label)} />
-          {hasCampaigns && (
-            <SegCard title="Campanhas (UTM)" data={campaignSeg} onItemClick={(label) => openDrill("campaign", label, label)} />
-          )}
-        </div>
+        {/* Campaigns */}
+        {hasCampaigns && (
+          <SegCard title="Campanhas (UTM)" data={campaignSeg} onItemClick={(label) => openDrill("campaign", label, label)} />
+        )}
 
         {/* Hourly distribution */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
