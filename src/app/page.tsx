@@ -185,6 +185,8 @@ function countActiveFilters(f: AdvancedFilters): number {
   return Object.values(f).filter(Boolean).length;
 }
 
+const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
+
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -343,6 +345,7 @@ export default function Dashboard() {
       return { ...ev, email, user_id: userId };
     });
 
+    const explicitCrmStages = new Set<string>(); // keys where crm_stage was set in metadata
     const map = new Map<string, UserJourney>();
     for (const ev of enriched) {
       const sid = (ev.metadata as any)?.session_id;
@@ -381,7 +384,7 @@ export default function Dashboard() {
         if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
         if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;
         if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
-        if (m.crm_stage) j.crmStage = m.crm_stage as string;
+        if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
@@ -400,6 +403,10 @@ export default function Dashboard() {
       j.downloadCount = j.downloads.length;
       j.renderCount = j.renders.length;
       if (j.phone) j.state = dddToState(j.phone);
+      // Apply ICP-based default when crm_stage was never explicitly set in metadata
+      if (!explicitCrmStages.has(j.key)) {
+        j.crmStage = ICP_SOFTWARES.has(j.software) ? "novo" : "nao_qualificado";
+      }
       for (let i = FUNNEL_STEPS.length - 1; i >= 0; i--) {
         if (j.stepsCompleted.has(FUNNEL_STEPS[i].key)) {
           j.lastStep = FUNNEL_STEPS[i].key;
