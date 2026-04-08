@@ -772,6 +772,12 @@ export default function Dashboard() {
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">{j.whatBrought}</span>
                           )}
                           <CrmBadge stage={j.crmStage} />
+                          {j.downloadCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">⬇ DL</span>
+                          )}
+                          {j.renderCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">✨ IA</span>
+                          )}
                         </div>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                       </div>
@@ -849,6 +855,8 @@ export default function Dashboard() {
                 <Meta label="Software" value={selectedUser.software || "—"} />
                 <Meta label="Interesse" value={selectedUser.whatBrought || "—"} />
                 <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
+                <MetaFlag label="Download" active={selectedUser.downloadCount > 0} />
+                <MetaFlag label="Render IA" active={selectedUser.renderCount > 0} />
               </div>
 
               {selectedUser.phone && (
@@ -997,6 +1005,12 @@ export default function Dashboard() {
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">{j.state}</span>
                           )}
                           <CrmBadge stage={j.crmStage} />
+                          {j.downloadCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">⬇ DL</span>
+                          )}
+                          {j.renderCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">✨ IA</span>
+                          )}
                         </div>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
                         {j.phone && (
@@ -1125,6 +1139,17 @@ function Meta({ label, value }: { label: string; value: string }) {
     <div className="bg-gray-800/30 rounded-lg p-2.5">
       <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
       <div className="text-sm text-gray-200 mt-1 truncate">{value}</div>
+    </div>
+  );
+}
+
+function MetaFlag({ label, active }: { label: string; active: boolean }) {
+  return (
+    <div className="bg-gray-800/30 rounded-lg p-2.5">
+      <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className={`text-sm mt-1 font-medium ${active ? "text-emerald-400" : "text-gray-600"}`}>
+        {active ? "✓ Sim" : "Não"}
+      </div>
     </div>
   );
 }
