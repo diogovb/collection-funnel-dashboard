@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
@@ -162,6 +162,29 @@ type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
+type AdvancedFilters = {
+  profession: string; software: string; whatBrought: string;
+  platform: string; method: string; state: string; crmStage: string;
+};
+const EMPTY_FILTERS: AdvancedFilters = {
+  profession: "", software: "", whatBrought: "", platform: "", method: "", state: "", crmStage: "",
+};
+function applyAdvancedFilters(journeys: UserJourney[], f: AdvancedFilters): UserJourney[] {
+  return journeys.filter(j => {
+    if (f.profession && j.profession !== f.profession) return false;
+    if (f.software && j.software !== f.software) return false;
+    if (f.whatBrought && j.whatBrought !== f.whatBrought) return false;
+    if (f.platform) { const pv = j.platform === "mobile" ? "mobile" : j.platform ? "desktop" : ""; if (pv !== f.platform) return false; }
+    if (f.method) { const mv = j.method === "google" ? "google" : j.method ? "email" : ""; if (mv !== f.method) return false; }
+    if (f.state && j.state !== f.state) return false;
+    if (f.crmStage && (j.crmStage || "novo") !== f.crmStage) return false;
+    return true;
+  });
+}
+function countActiveFilters(f: AdvancedFilters): number {
+  return Object.values(f).filter(Boolean).length;
+}
+
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -189,7 +212,10 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState("");
-  const [profFilter, setProfFilter] = useState("");
+  const [pipelineFilters, setPipelineFilters] = useState<AdvancedFilters>(EMPTY_FILTERS);
+  const [tableFilters, setTableFilters] = useState<AdvancedFilters>(EMPTY_FILTERS);
+  const [pipelineFilterOpen, setPipelineFilterOpen] = useState(false);
+  const [tableFilterOpen, setTableFilterOpen] = useState(false);
   const [userPage, setUserPage] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
   const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
@@ -243,6 +269,14 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
+
+  // Restore filters from localStorage on mount
+  useEffect(() => {
+    try { const v = localStorage.getItem("pipeline_filters"); if (v) setPipelineFilters(JSON.parse(v)); } catch {}
+    try { const v = localStorage.getItem("table_filters"); if (v) setTableFilters(JSON.parse(v)); } catch {}
+  }, []);
+  useEffect(() => { localStorage.setItem("pipeline_filters", JSON.stringify(pipelineFilters)); }, [pipelineFilters]);
+  useEffect(() => { localStorage.setItem("table_filters", JSON.stringify(tableFilters)); }, [tableFilters]);
 
   const handleDeleteUser = useCallback(async () => {
     if (!selectedUser) return;
@@ -474,15 +508,36 @@ export default function Dashboard() {
 
   const hasCampaigns = campaignSeg.length > 0;
 
+  const filterOptions = useMemo(() => {
+    const profSet = new Set<string>(), swSet = new Set<string>(), wbSet = new Set<string>(), stSet = new Set<string>();
+    for (const j of signupJourneys) {
+      if (j.profession) profSet.add(j.profession);
+      if (j.software) swSet.add(j.software);
+      if (j.whatBrought) wbSet.add(j.whatBrought);
+      if (j.state) stSet.add(j.state);
+    }
+    return {
+      professions: Array.from(profSet).sort((a, b) => (PROFESSION_LABELS[a] || a).localeCompare(PROFESSION_LABELS[b] || b, "pt-BR")),
+      softwares: Array.from(swSet).sort((a, b) => a.localeCompare(b, "pt-BR")),
+      whatBroughts: Array.from(wbSet).sort((a, b) => a.localeCompare(b, "pt-BR")),
+      states: Array.from(stSet).sort(),
+    };
+  }, [signupJourneys]);
+
+  const pipelineFilteredJourneys = useMemo(
+    () => applyAdvancedFilters(signupJourneys, pipelineFilters),
+    [signupJourneys, pipelineFilters]
+  );
+
   const crmStageSeg = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of CRM_STAGES) map.set(s.key, 0);
-    for (const j of signupJourneys) {
+    for (const j of pipelineFilteredJourneys) {
       const k = j.crmStage || "novo";
       map.set(k, (map.get(k) || 0) + 1);
     }
     return CRM_STAGES.map(s => [s.label, map.get(s.key) || 0] as [string, number]);
-  }, [signupJourneys]);
+  }, [pipelineFilteredJourneys]);
 
   // ─── Drill journeys ─────────────────────────────────────────────────────────
   const drillJourneys = useMemo(() => {
@@ -532,21 +587,14 @@ export default function Dashboard() {
     });
   }, [journeys, signupJourneys, drillFilter]);
 
-  const allProfessions = useMemo(() => {
-    const set = new Set<string>();
-    for (const j of journeys) if (j.profession) set.add(j.profession);
-    return Array.from(set).sort((a, b) => (PROFESSION_LABELS[a] || a).localeCompare(PROFESSION_LABELS[b] || b, "pt-BR"));
-  }, [journeys]);
-
   const filteredJourneys = useMemo(() => {
-    let list = signupJourneys;
+    let list = applyAdvancedFilters(signupJourneys, tableFilters);
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       list = list.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.phone?.includes(q));
     }
-    if (profFilter) list = list.filter(j => j.profession === profFilter);
     return list;
-  }, [signupJourneys, searchTerm, profFilter]);
+  }, [signupJourneys, tableFilters, searchTerm]);
 
   const pagedJourneys = filteredJourneys.slice(userPage * USERS_PER_PAGE, (userPage + 1) * USERS_PER_PAGE);
   const totalPages = Math.ceil(filteredJourneys.length / USERS_PER_PAGE);
@@ -672,6 +720,28 @@ export default function Dashboard() {
             const stage = CRM_STAGES.find(s => s.label === label);
             if (stage) openDrill("crmStage", stage.key, label);
           }}
+          headerRight={
+            <button
+              onClick={() => setPipelineFilterOpen(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
+                countActiveFilters(pipelineFilters) > 0
+                  ? "border-indigo-500/60 text-indigo-300 bg-indigo-500/10"
+                  : "border-gray-700/50 text-gray-400 hover:text-gray-200 bg-gray-800/40"
+              }`}
+            >
+              Filtrar
+              {countActiveFilters(pipelineFilters) > 0 && (
+                <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] flex items-center justify-center font-bold">
+                  {countActiveFilters(pipelineFilters)}
+                </span>
+              )}
+            </button>
+          }
+          belowHeader={pipelineFilterOpen ? (
+            <div className="mb-3 pb-3 border-b border-gray-800">
+              <FilterRow filters={pipelineFilters} onChange={setPipelineFilters} options={filterOptions} />
+            </div>
+          ) : undefined}
         />
 
         {/* Email domains */}
@@ -709,27 +779,37 @@ export default function Dashboard() {
 
         {/* Cadastros table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
-            <h2 className="text-base sm:text-lg font-semibold shrink-0">Cadastros ({formatNumber(filteredJourneys.length)})</h2>
-            <div className="flex flex-1 flex-col sm:flex-row gap-2 w-full">
-              <input
-                type="text"
-                placeholder="Buscar por nome, email ou telefone..."
-                value={searchTerm}
-                onChange={e => { setSearchTerm(e.target.value); setUserPage(0); }}
-                className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <select
-                value={profFilter}
-                onChange={e => { setProfFilter(e.target.value); setUserPage(0); }}
-                className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">Todas as profissões</option>
-                {allProfessions.map(p => (
-                  <option key={p} value={p}>{PROFESSION_LABELS[p] || p}</option>
-                ))}
-              </select>
+          <div className="flex flex-col gap-3 mb-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-base sm:text-lg font-semibold shrink-0">Cadastros ({formatNumber(filteredJourneys.length)})</h2>
+              <div className="flex flex-1 gap-2">
+                <input
+                  type="text"
+                  placeholder="Buscar por nome, email ou telefone..."
+                  value={searchTerm}
+                  onChange={e => { setSearchTerm(e.target.value); setUserPage(0); }}
+                  className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={() => setTableFilterOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs border transition-all shrink-0 ${
+                    countActiveFilters(tableFilters) > 0
+                      ? "border-indigo-500/60 text-indigo-300 bg-indigo-500/10"
+                      : "border-gray-700/50 text-gray-400 hover:text-gray-200 bg-gray-800/40"
+                  }`}
+                >
+                  Filtrar
+                  {countActiveFilters(tableFilters) > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] flex items-center justify-center font-bold">
+                      {countActiveFilters(tableFilters)}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
+            {tableFilterOpen && (
+              <FilterRow filters={tableFilters} onChange={f => { setTableFilters(f); setUserPage(0); }} options={filterOptions} />
+            )}
           </div>
 
           {loading && signupJourneys.length === 0 ? (
@@ -1088,17 +1168,23 @@ function SummaryCard({ label, value, sub, conversion, color }: {
   );
 }
 
-function SegCard({ title, data, onItemClick, colors }: {
+function SegCard({ title, data, onItemClick, colors, headerRight, belowHeader }: {
   title: string;
   data: [string, number][];
   onItemClick?: (label: string) => void;
   colors?: readonly string[];
+  headerRight?: ReactNode;
+  belowHeader?: ReactNode;
 }) {
   const total = data.reduce((acc, [, v]) => acc + v, 0);
   const palette = colors ?? SEG_COLORS;
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">{title}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
+        {headerRight}
+      </div>
+      {belowHeader}
       <div className="space-y-3">
         {data.length === 0 ? (
           <p className="text-xs text-gray-500">Sem dados</p>
@@ -1153,6 +1239,54 @@ function MetaFlag({ label, active }: { label: string; active: boolean }) {
       <div className={`text-sm mt-1 font-medium ${active ? "text-emerald-400" : "text-gray-600"}`}>
         {active ? "✓ Sim" : "Não"}
       </div>
+    </div>
+  );
+}
+
+function FilterRow({ filters, onChange, options }: {
+  filters: AdvancedFilters;
+  onChange: (f: AdvancedFilters) => void;
+  options: { professions: string[]; softwares: string[]; whatBroughts: string[]; states: string[] };
+}) {
+  const sel = "bg-gray-800/50 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  const active = countActiveFilters(filters) > 0;
+  return (
+    <div className="flex flex-wrap gap-2 items-center">
+      <select value={filters.profession} onChange={e => onChange({ ...filters, profession: e.target.value })} className={sel}>
+        <option value="">Todas profissões</option>
+        {options.professions.map(p => <option key={p} value={p}>{PROFESSION_LABELS[p] || p}</option>)}
+      </select>
+      <select value={filters.software} onChange={e => onChange({ ...filters, software: e.target.value })} className={sel}>
+        <option value="">Todos softwares</option>
+        {options.softwares.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <select value={filters.whatBrought} onChange={e => onChange({ ...filters, whatBrought: e.target.value })} className={sel}>
+        <option value="">Todos interesses</option>
+        {options.whatBroughts.map(w => <option key={w} value={w}>{w}</option>)}
+      </select>
+      <select value={filters.platform} onChange={e => onChange({ ...filters, platform: e.target.value })} className={sel}>
+        <option value="">Plataforma</option>
+        <option value="mobile">Mobile</option>
+        <option value="desktop">Desktop</option>
+      </select>
+      <select value={filters.method} onChange={e => onChange({ ...filters, method: e.target.value })} className={sel}>
+        <option value="">Método</option>
+        <option value="google">Google</option>
+        <option value="email">Email/Senha</option>
+      </select>
+      <select value={filters.state} onChange={e => onChange({ ...filters, state: e.target.value })} className={sel}>
+        <option value="">Estado</option>
+        {options.states.map(s => <option key={s} value={s}>{s} — {STATE_NAMES[s] || s}</option>)}
+      </select>
+      <select value={filters.crmStage} onChange={e => onChange({ ...filters, crmStage: e.target.value })} className={sel}>
+        <option value="">CRM Stage</option>
+        {CRM_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+      </select>
+      {active && (
+        <button onClick={() => onChange(EMPTY_FILTERS)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1">
+          Limpar filtros
+        </button>
+      )}
     </div>
   );
 }
