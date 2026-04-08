@@ -28,6 +28,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "event_type inválido" }, { status: 400, headers: CORS_HEADERS });
     }
 
+    const { data: existing } = await supabaseAdmin
+      .from("funnel_events")
+      .select("id")
+      .eq("email", email)
+      .eq("event", event_type)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json({ ok: true, skipped: true, message: "Event already exists for this email" }, { headers: CORS_HEADERS });
+    }
+
     const { error } = await supabaseAdmin
       .from("funnel_events")
       .insert({

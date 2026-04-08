@@ -395,8 +395,8 @@ export default function Dashboard() {
 
   const mobileCount = useMemo(() => signupJourneys.filter(j => j.platform === "mobile").length, [signupJourneys]);
   const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
-  const totalDownloads = useMemo(() => signupJourneys.reduce((sum, j) => sum + j.downloadCount, 0), [signupJourneys]);
-  const totalRenders = useMemo(() => signupJourneys.reduce((sum, j) => sum + j.renderCount, 0), [signupJourneys]);
+  const totalDownloads = useMemo(() => signupJourneys.filter(j => j.downloadCount > 0).length, [signupJourneys]);
+  const totalRenders = useMemo(() => signupJourneys.filter(j => j.renderCount > 0).length, [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -621,14 +621,14 @@ export default function Dashboard() {
           <MetricCard
             label="Downloads"
             value={formatNumber(totalDownloads)}
-            sub="blocos baixados no período"
+            sub="usuários fizeram download"
             color="#10b981"
             onClick={() => openDrill("hasDownloads", "true", "Com downloads")}
           />
           <MetricCard
             label="Renders IA"
             value={formatNumber(totalRenders)}
-            sub="renders gerados no período"
+            sub="usuários renderizaram"
             color="#06b6d4"
             onClick={() => openDrill("hasRenders", "true", "Com renders IA")}
           />
@@ -872,41 +872,18 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {selectedUser.downloads.length > 0 && (
-                <div className="bg-gray-800/30 rounded-xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Downloads ({selectedUser.downloadCount})</div>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {selectedUser.downloads.map((d, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
-                        <div className="min-w-0">
-                          <span className="text-gray-200 font-medium truncate block">{d.product_name || "—"}</span>
-                          {(d.product_brand || d.product_category) && (
-                            <span className="text-gray-500">{[d.product_brand, d.product_category].filter(Boolean).join(" · ")}</span>
-                          )}
-                        </div>
-                        <span className="text-gray-600 shrink-0">{formatDate(d.date)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedUser.renders.length > 0 && (
-                <div className="bg-gray-800/30 rounded-xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Renders IA ({selectedUser.renderCount})</div>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {selectedUser.renders.map((r, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
-                        <div className="min-w-0">
-                          <span className="text-gray-200 font-medium truncate block">{r.product_name || "—"}</span>
-                          {(r.product_brand || r.product_category) && (
-                            <span className="text-gray-500">{[r.product_brand, r.product_category].filter(Boolean).join(" · ")}</span>
-                          )}
-                        </div>
-                        <span className="text-gray-600 shrink-0">{formatDate(r.date)}</span>
-                      </div>
-                    ))}
-                  </div>
+              {(selectedUser.downloadCount > 0 || selectedUser.renderCount > 0) && (
+                <div className="flex gap-2 flex-wrap">
+                  {selectedUser.downloadCount > 0 && (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-medium">
+                      ✓ Fez download
+                    </span>
+                  )}
+                  {selectedUser.renderCount > 0 && (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-medium">
+                      ✓ Renderizou
+                    </span>
+                  )}
                 </div>
               )}
 
