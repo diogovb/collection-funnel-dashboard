@@ -105,6 +105,7 @@ const CRM_STAGES = [
   { key: "ativado", label: "Ativado", color: "#84cc16", activeBg: "bg-lime-500", activeText: "text-white", inactiveBorder: "border-lime-500/60", inactiveText: "text-lime-400", badgeBg: "bg-lime-500/20", badgeText: "text-lime-300" },
   { key: "em_negociacao", label: "Em negociação", color: "#a855f7", activeBg: "bg-purple-500", activeText: "text-white", inactiveBorder: "border-purple-500/60", inactiveText: "text-purple-400", badgeBg: "bg-purple-500/20", badgeText: "text-purple-300" },
   { key: "convertido", label: "Convertido", color: "#22c55e", activeBg: "bg-green-500", activeText: "text-white", inactiveBorder: "border-green-500/60", inactiveText: "text-green-400", badgeBg: "bg-green-500/20", badgeText: "text-green-300" },
+  { key: "nao_qualificado", label: "Não qualificado", color: "#ef4444", activeBg: "bg-red-500", activeText: "text-white", inactiveBorder: "border-red-500/60", inactiveText: "text-red-400", badgeBg: "bg-red-500/20", badgeText: "text-red-300" },
 ] as const;
 
 function getCrmStage(key: string) {
