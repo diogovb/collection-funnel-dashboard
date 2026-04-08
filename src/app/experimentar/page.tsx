@@ -100,12 +100,14 @@ interface Lead {
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
+  software: string;
+  whatBrought: string;
 }
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
 type DrillFilter = {
-  type: "profession" | "platform" | "state" | "domain" | "hour" | "day" | "referrer" | "campaign";
+  type: "profession" | "platform" | "state" | "domain" | "hour" | "day" | "referrer" | "campaign" | "software" | "whatBrought";
   value: string;
   label: string;
 } | null;
@@ -206,6 +208,8 @@ export default function ExperimentarDashboard() {
         utmSource: m.utm_source || "",
         utmMedium: m.utm_medium || "",
         utmCampaign: m.utm_campaign || "",
+        software: m.software || "",
+        whatBrought: m.what_brought || "",
       };
     });
     setLeads(parsed);
@@ -312,6 +316,24 @@ export default function ExperimentarDashboard() {
 
   const hasCampaigns = campaignSeg.length > 0;
 
+  const softwareSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leads) {
+      const label = l.software || "Não informado";
+      map.set(label, (map.get(label) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [leads]);
+
+  const whatBroughtSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of leads) {
+      const label = l.whatBrought || "Não informado";
+      map.set(label, (map.get(label) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [leads]);
+
   // ─── Leads per day (last 15 days) ──────────────────────────────────────────
   const leadsByDay = useMemo(() => {
     const map = new Map<string, number>();
@@ -369,6 +391,10 @@ export default function ExperimentarDashboard() {
           const key = l.utmCampaign ? `${l.utmSource} / ${l.utmCampaign}` : l.utmSource;
           return key === drillFilter.value;
         }
+        case "software":
+          return (l.software || "Não informado") === drillFilter.value;
+        case "whatBrought":
+          return (l.whatBrought || "Não informado") === drillFilter.value;
         case "hour":
           return new Date(l.created_at).getHours() === parseInt(drillFilter.value);
         case "day":
@@ -536,6 +562,20 @@ export default function ExperimentarDashboard() {
           )}
         </div>
 
+        {/* Software & Interesse */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SegCard
+            title="Software"
+            data={softwareSeg}
+            onItemClick={(label) => { setDrillFilter({ type: "software", value: label, label }); setView("drillList"); }}
+          />
+          <SegCard
+            title="Interesse"
+            data={whatBroughtSeg}
+            onItemClick={(label) => { setDrillFilter({ type: "whatBrought", value: label, label }); setView("drillList"); }}
+          />
+        </div>
+
         {/* Hourly distribution */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Distribuição por hora do dia</h2>
@@ -671,6 +711,16 @@ export default function ExperimentarDashboard() {
                               {l.state}
                             </span>
                           )}
+                          {l.software && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">
+                              {l.software}
+                            </span>
+                          )}
+                          {l.whatBrought && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                              {l.whatBrought}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{l.email || "Sem email"}</p>
                       </div>
@@ -744,6 +794,8 @@ export default function ExperimentarDashboard() {
                 <Meta label="Plataforma" value={selectedLead.platform === "mobile" ? "Mobile" : selectedLead.platform ? "Desktop" : "—"} />
                 <Meta label="Estado" value={selectedLead.state ? `${selectedLead.state} — ${STATE_NAMES[selectedLead.state] || ""}` : "—"} />
                 <Meta label="DDD" value={selectedLead.phone ? (extractDDD(selectedLead.phone) || "—") : "—"} />
+                <Meta label="Software" value={selectedLead.software || "Não informado"} />
+                <Meta label="Interesse" value={selectedLead.whatBrought || "Não informado"} />
               </div>
 
               {/* Phone + WhatsApp */}
