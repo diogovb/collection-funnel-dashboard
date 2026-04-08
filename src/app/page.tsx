@@ -158,7 +158,6 @@ function formatDate(iso: string): string {
 
 export default function Dashboard() {
   const [events, setEvents] = useState<FunnelEvent[]>([]);
-  const [last15DaysEvents, setLast15DaysEvents] = useState<FunnelEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState("");
@@ -216,15 +215,6 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
-
-  useEffect(() => {
-    supabase
-      .from("funnel_events")
-      .select("created_at, user_id, email")
-      .eq("event", "signup_completed")
-      .gte("created_at", daysAgo(14))
-      .then(({ data }) => { if (data) setLast15DaysEvents(data as FunnelEvent[]); });
-  }, [lastRefresh]);
 
   useEffect(() => {
     const syncDownloads = () => fetch("/api/sync-downloads", { method: "POST" }).catch(() => {});
@@ -350,27 +340,6 @@ export default function Dashboard() {
 
   const mobileCount = useMemo(() => signupJourneys.filter(j => j.platform === "mobile").length, [signupJourneys]);
   const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
-
-  // ─── Cadastros per day (always last 15 days, independent of period filter) ───
-  const signupsByDay = useMemo(() => {
-    const seen = new Set<string>();
-    const map = new Map<string, number>();
-    for (const ev of last15DaysEvents) {
-      const uid = ev.user_id || ev.email;
-      if (uid) { if (seen.has(uid)) continue; seen.add(uid); }
-      const day = ev.created_at.slice(0, 10);
-      map.set(day, (map.get(day) || 0) + 1);
-    }
-    const days: { day: string; count: number }[] = [];
-    for (let i = 14; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      days.push({ day: key, count: map.get(key) || 0 });
-    }
-    return days;
-  }, [last15DaysEvents]);
-  const maxDayCount = useMemo(() => Math.max(...signupsByDay.map(d => d.count), 1), [signupsByDay]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -572,40 +541,6 @@ export default function Dashboard() {
             color="#f59e0b"
             onClick={() => openDrill("platform", "Desktop", "Desktop")}
           />
-        </div>
-
-        {/* Cadastros per day chart */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Cadastros por dia (últimos 15 dias)</h2>
-          <div className="flex items-end gap-0.5 h-28 overflow-x-auto pb-5">
-            {signupsByDay.map(({ day, count }) => {
-              const heightPct = maxDayCount > 0 ? (count / maxDayCount) * 100 : 0;
-              const label = new Date(day + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-              return (
-                <div
-                  key={day}
-                  className={`flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative ${count > 0 ? "cursor-pointer" : ""}`}
-                  onClick={() => { if (count > 0) { openDrill("day", day, label); } }}
-                >
-                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    {label}: <span className="font-semibold">{count} cadastro{count !== 1 ? "s" : ""}</span>
-                  </div>
-                  <div className="w-full flex items-end h-20">
-                    <div
-                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
-                      style={{
-                        height: `${Math.max(heightPct, count > 0 ? 8 : 0)}%`,
-                        minHeight: count > 0 ? "8px" : "0",
-                        background: "linear-gradient(180deg, #6366f1, #a855f7)",
-                        opacity: count > 0 ? 1 : 0.1,
-                      }}
-                    />
-                  </div>
-                  <span className="text-[9px] text-gray-600 rotate-45 origin-left whitespace-nowrap translate-x-1">{label}</span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Segmentation row 1 */}
