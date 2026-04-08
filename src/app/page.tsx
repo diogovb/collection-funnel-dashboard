@@ -588,57 +588,6 @@ export default function Dashboard() {
           })}
         </div>
 
-        {/* Funnel visualization */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-8 border border-gray-800/50">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-6">Funil de conversão</h2>
-          <div className="space-y-1">
-            {funnelCounts.map((step, i) => {
-              const widthPct = topCount > 0 ? (step.count / topCount) * 100 : 0;
-              const prev = i > 0 ? funnelCounts[i - 1].count : null;
-              const convRate = prev !== null && prev > 0 ? ((step.count / prev) * 100).toFixed(1) : null;
-              const dropRate = prev !== null && prev > 0 ? (((prev - step.count) / prev) * 100).toFixed(1) : null;
-
-              return (
-                <div key={step.key}>
-                  {i > 0 && (
-                    <div className="flex items-center justify-center py-3 gap-3">
-                      <div className="flex-1 border-t border-dashed border-gray-800" />
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 font-medium">↓ {convRate}%</span>
-                        <span className="px-2 py-0.5 rounded-full bg-red-900/30 text-red-400">{dropRate}% saíram</span>
-                      </div>
-                      <div className="flex-1 border-t border-dashed border-gray-800" />
-                    </div>
-                  )}
-                  <div className="cursor-pointer group" onClick={() => openDrill("step", step.key, step.label)}>
-                    <div className="flex items-center gap-3 mb-1.5 px-1">
-                      <span className="text-base">{step.icon}</span>
-                      <span className="text-sm font-medium" style={{ color: FUNNEL_COLORS[i] }}>{step.label}</span>
-                      <span className="text-xs text-gray-500 ml-auto">{step.desc}</span>
-                    </div>
-                    <div className="relative h-11 bg-gray-800/40 rounded-xl overflow-hidden group-hover:bg-gray-800/60 transition-colors">
-                      <div
-                        className="absolute top-0 bottom-0 rounded-xl transition-all duration-700"
-                        style={{
-                          width: `${Math.max(widthPct, 2)}%`,
-                          left: `${(100 - Math.max(widthPct, 2)) / 2}%`,
-                          background: `linear-gradient(90deg, ${FUNNEL_COLORS[i]}99, ${FUNNEL_COLORS[i]}, ${FUNNEL_COLORS[i]}99)`,
-                        }}
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center gap-2">
-                        <span className="text-base font-bold tabular-nums drop-shadow-md">{step.count}</span>
-                        <span className="text-xs text-white/60 drop-shadow-md">
-                          {topCount > 0 ? ((step.count / topCount) * 100).toFixed(0) : 0}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Cadastros per day chart */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Cadastros por dia (últimos 15 dias)</h2>
