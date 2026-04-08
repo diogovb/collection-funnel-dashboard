@@ -84,10 +84,9 @@ function formatNumber(n: number): string {
 
 const FUNNEL_STEPS = [
   { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
-  { key: "first_download", label: "1º Download", icon: "📥", desc: "Baixaram o primeiro bloco" },
 ] as const;
 
-const FUNNEL_COLORS = ["#6366f1", "#a855f7"];
+const FUNNEL_COLORS = ["#6366f1"];
 const SEG_COLORS = ["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6", "#f97316"];
 
 const PROFESSION_LABELS: Record<string, string> = {
@@ -110,6 +109,13 @@ const CRM_STAGES = [
 
 function getCrmStage(key: string) {
   return CRM_STAGES.find(s => s.key === key) ?? CRM_STAGES[0];
+}
+
+interface ProductEvent {
+  product_name: string;
+  product_brand: string;
+  product_category: string;
+  date: string;
 }
 
 interface FunnelEvent {
@@ -144,11 +150,15 @@ interface UserJourney {
   lastSeen: string;
   allEvents: FunnelEvent[];
   crmStage: string;
+  downloads: ProductEvent[];
+  renders: ProductEvent[];
+  downloadCount: number;
+  renderCount: number;
 }
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 function daysAgo(n: number): string {
@@ -230,13 +240,6 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
-
-  useEffect(() => {
-    const syncDownloads = () => fetch("/api/sync-downloads", { method: "POST" }).catch(() => {});
-    syncDownloads();
-    const interval = setInterval(syncDownloads, 5 * 60_000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleDeleteUser = useCallback(async () => {
     if (!selectedUser) return;
@@ -320,6 +323,10 @@ export default function Dashboard() {
           lastSeen: ev.created_at,
           allEvents: [],
           crmStage: "novo",
+          downloads: [],
+          renders: [],
+          downloadCount: 0,
+          renderCount: 0,
         });
       }
       const j = map.get(key)!;
@@ -341,12 +348,20 @@ export default function Dashboard() {
       }
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
+      if (ev.event === "download") {
+        j.downloads.push({ product_name: m.product_name || "", product_brand: m.product_brand || "", product_category: m.product_category || "", date: ev.created_at });
+      }
+      if (ev.event === "render_ia") {
+        j.renders.push({ product_name: m.product_name || "", product_brand: m.product_brand || "", product_category: m.product_category || "", date: ev.created_at });
+      }
       if (FUNNEL_STEPS.some(s => s.key === ev.event)) j.stepsCompleted.add(ev.event);
       if (ev.created_at > j.lastSeen) j.lastSeen = ev.created_at;
       if (ev.created_at < j.firstSeen) j.firstSeen = ev.created_at;
     }
 
     for (const j of map.values()) {
+      j.downloadCount = j.downloads.length;
+      j.renderCount = j.renders.length;
       if (j.phone) j.state = dddToState(j.phone);
       for (let i = FUNNEL_STEPS.length - 1; i >= 0; i--) {
         if (j.stepsCompleted.has(FUNNEL_STEPS[i].key)) {
@@ -380,6 +395,8 @@ export default function Dashboard() {
 
   const mobileCount = useMemo(() => signupJourneys.filter(j => j.platform === "mobile").length, [signupJourneys]);
   const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
+  const totalDownloads = useMemo(() => signupJourneys.reduce((sum, j) => sum + j.downloadCount, 0), [signupJourneys]);
+  const totalRenders = useMemo(() => signupJourneys.reduce((sum, j) => sum + j.renderCount, 0), [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -502,6 +519,10 @@ export default function Dashboard() {
           return j.firstSeen.slice(0, 10) === drillFilter.value;
         case "crmStage":
           return (j.crmStage || "novo") === drillFilter.value;
+        case "hasDownloads":
+          return j.downloadCount > 0;
+        case "hasRenders":
+          return j.renderCount > 0;
         default:
           return false;
       }
@@ -592,6 +613,24 @@ export default function Dashboard() {
             sub={signupJourneys.length > 0 ? `${((desktopCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
             color="#f59e0b"
             onClick={() => openDrill("platform", "Desktop", "Desktop")}
+          />
+        </div>
+
+        {/* Download / Render metric cards */}
+        <div className="grid grid-cols-2 gap-2 sm:gap-4">
+          <MetricCard
+            label="Downloads"
+            value={formatNumber(totalDownloads)}
+            sub="blocos baixados no período"
+            color="#10b981"
+            onClick={() => openDrill("hasDownloads", "true", "Com downloads")}
+          />
+          <MetricCard
+            label="Renders IA"
+            value={formatNumber(totalRenders)}
+            sub="renders gerados no período"
+            color="#06b6d4"
+            onClick={() => openDrill("hasRenders", "true", "Com renders IA")}
           />
         </div>
 
@@ -830,6 +869,44 @@ export default function Dashboard() {
                     </svg>
                     WhatsApp
                   </a>
+                </div>
+              )}
+
+              {selectedUser.downloads.length > 0 && (
+                <div className="bg-gray-800/30 rounded-xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Downloads ({selectedUser.downloadCount})</div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {selectedUser.downloads.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <span className="text-gray-200 font-medium truncate block">{d.product_name || "—"}</span>
+                          {(d.product_brand || d.product_category) && (
+                            <span className="text-gray-500">{[d.product_brand, d.product_category].filter(Boolean).join(" · ")}</span>
+                          )}
+                        </div>
+                        <span className="text-gray-600 shrink-0">{formatDate(d.date)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedUser.renders.length > 0 && (
+                <div className="bg-gray-800/30 rounded-xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Renders IA ({selectedUser.renderCount})</div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {selectedUser.renders.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <span className="text-gray-200 font-medium truncate block">{r.product_name || "—"}</span>
+                          {(r.product_brand || r.product_category) && (
+                            <span className="text-gray-500">{[r.product_brand, r.product_category].filter(Boolean).join(" · ")}</span>
+                          )}
+                        </div>
+                        <span className="text-gray-600 shrink-0">{formatDate(r.date)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
