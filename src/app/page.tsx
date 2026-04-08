@@ -159,7 +159,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 type AdvancedFilters = {
@@ -186,17 +186,14 @@ function countActiveFilters(f: AdvancedFilters): number {
 }
 
 const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
-// Check both raw keys (e.g. "arquiteto") and display labels (e.g. "Arquiteto(a)")
+// Raw keys and display labels both accepted
 const ICP_PROFESSIONS = new Set([
   "arquiteto", "Arquiteto(a)",
   "designer_interiores", "Designer de Interiores",
   "projetista", "Projetista",
 ]);
 function isIcp(software: string, profession: string): boolean {
-  if (ICP_SOFTWARES.has(software)) return true;
-  if (ICP_PROFESSIONS.has(profession)) return true;
-  if (profession?.toLowerCase().includes("estudante")) return true;
-  return false;
+  return ICP_SOFTWARES.has(software) && ICP_PROFESSIONS.has(profession);
 }
 
 function daysAgo(n: number): string {
@@ -453,6 +450,7 @@ export default function Dashboard() {
   const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
   const totalDownloads = useMemo(() => signupJourneys.filter(j => j.downloadCount > 0).length, [signupJourneys]);
   const totalRenders = useMemo(() => signupJourneys.filter(j => j.renderCount > 0).length, [signupJourneys]);
+  const icpCount = useMemo(() => signupJourneys.filter(j => isIcp(j.software, j.profession)).length, [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -600,6 +598,8 @@ export default function Dashboard() {
           return j.downloadCount > 0;
         case "hasRenders":
           return j.renderCount > 0;
+        case "icp":
+          return isIcp(j.software, j.profession);
         default:
           return false;
       }
@@ -668,8 +668,15 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
+          <MetricCard
+            label="Leads ICP"
+            value={formatNumber(icpCount)}
+            sub="perfil ideal de cliente"
+            color="#10b981"
+            onClick={() => openDrill("icp", "icp", "Leads ICP")}
+          />
           <MetricCard
             label="Mobile"
             value={formatNumber(mobileCount)}
