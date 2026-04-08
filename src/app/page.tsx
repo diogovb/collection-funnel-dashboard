@@ -846,7 +846,6 @@ export default function Dashboard() {
                 <Meta label="Estado" value={selectedUser.state ? `${selectedUser.state} — ${STATE_NAMES[selectedUser.state] || ""}` : "—"} />
                 <Meta label="Software" value={selectedUser.software || "—"} />
                 <Meta label="Interesse" value={selectedUser.whatBrought || "—"} />
-                <Meta label="Origem" value={selectedUser.referrerDomain || "—"} />
                 <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
               </div>
 
