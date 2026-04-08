@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
+// Check both raw keys (e.g. "arquiteto") and display labels (e.g. "Arquiteto(a)")
+const ICP_PROFESSIONS = new Set([
+  "arquiteto", "Arquiteto(a)",
+  "designer_interiores", "Designer de Interiores",
+  "projetista", "Projetista",
+]);
 
 function isIcp(software: string, profession: string): boolean {
   if (ICP_SOFTWARES.has(software)) return true;
+  if (ICP_PROFESSIONS.has(profession)) return true;
   if (profession?.toLowerCase().includes("estudante")) return true;
   return false;
 }
