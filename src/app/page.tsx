@@ -637,7 +637,7 @@ export default function Dashboard() {
           {signupJourneys.length === 0 && !loading ? (
             <p className="text-xs text-gray-500">Sem dados</p>
           ) : (
-            <div className="flex items-end gap-1 h-24">
+            <div className="flex items-end gap-1 h-48">
               {hourlyDist.map((count, h) => {
                 const heightPct = maxHour > 0 ? (count / maxHour) * 100 : 0;
                 return (
@@ -649,8 +649,8 @@ export default function Dashboard() {
                     <div
                       className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
                       style={{
-                        height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
-                        minHeight: count > 0 ? "3px" : undefined,
+                        height: `${Math.max(heightPct, count > 0 ? 8 : 0)}%`,
+                        minHeight: count > 0 ? "10px" : undefined,
                         background: "linear-gradient(180deg, #6366f1, #a855f7)",
                         opacity: count > 0 ? 1 : 0.15,
                       }}
