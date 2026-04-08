@@ -158,6 +158,7 @@ function formatDate(iso: string): string {
 
 export default function Dashboard() {
   const [events, setEvents] = useState<FunnelEvent[]>([]);
+  const [last15DaysEvents, setLast15DaysEvents] = useState<FunnelEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState("");
@@ -215,6 +216,15 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
+
+  useEffect(() => {
+    supabase
+      .from("funnel_events")
+      .select("created_at, user_id, email")
+      .eq("event", "signup_completed")
+      .gte("created_at", daysAgo(14))
+      .then(({ data }) => { if (data) setLast15DaysEvents(data as FunnelEvent[]); });
+  }, [lastRefresh]);
 
   useEffect(() => {
     const syncDownloads = () => fetch("/api/sync-downloads", { method: "POST" }).catch(() => {});
@@ -341,11 +351,14 @@ export default function Dashboard() {
   const mobileCount = useMemo(() => signupJourneys.filter(j => j.platform === "mobile").length, [signupJourneys]);
   const desktopCount = useMemo(() => signupJourneys.filter(j => j.platform !== "mobile" && j.platform).length, [signupJourneys]);
 
-  // ─── Cadastros per day (last 15 days) ────────────────────────────────────────
+  // ─── Cadastros per day (always last 15 days, independent of period filter) ───
   const signupsByDay = useMemo(() => {
+    const seen = new Set<string>();
     const map = new Map<string, number>();
-    for (const j of signupJourneys) {
-      const day = j.firstSeen.slice(0, 10);
+    for (const ev of last15DaysEvents) {
+      const uid = ev.user_id || ev.email;
+      if (uid) { if (seen.has(uid)) continue; seen.add(uid); }
+      const day = ev.created_at.slice(0, 10);
       map.set(day, (map.get(day) || 0) + 1);
     }
     const days: { day: string; count: number }[] = [];
@@ -356,7 +369,7 @@ export default function Dashboard() {
       days.push({ day: key, count: map.get(key) || 0 });
     }
     return days;
-  }, [signupJourneys]);
+  }, [last15DaysEvents]);
   const maxDayCount = useMemo(() => Math.max(...signupsByDay.map(d => d.count), 1), [signupsByDay]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
@@ -574,17 +587,15 @@ export default function Dashboard() {
                   className={`flex-1 min-w-[18px] flex flex-col items-center gap-1 group relative ${count > 0 ? "cursor-pointer" : ""}`}
                   onClick={() => { if (count > 0) { openDrill("day", day, label); } }}
                 >
-                  {count > 0 && (
-                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                      {label}: {count}
-                    </div>
-                  )}
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-700 text-xs text-white px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    {label}: <span className="font-semibold">{count} cadastro{count !== 1 ? "s" : ""}</span>
+                  </div>
                   <div className="w-full flex items-end h-20">
                     <div
                       className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
                       style={{
-                        height: `${Math.max(heightPct, count > 0 ? 4 : 0)}%`,
-                        minHeight: count > 0 ? "3px" : "0",
+                        height: `${Math.max(heightPct, count > 0 ? 8 : 0)}%`,
+                        minHeight: count > 0 ? "8px" : "0",
                         background: "linear-gradient(180deg, #6366f1, #a855f7)",
                         opacity: count > 0 ? 1 : 0.1,
                       }}
