@@ -639,7 +639,7 @@ export default function Dashboard() {
             </button>
           ))}
           {preset === "custom" && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm" />
               <span className="text-gray-500">até</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-1.5 text-sm" />
@@ -649,7 +649,7 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
           <MetricCard
             label="Mobile"
@@ -780,7 +780,7 @@ export default function Dashboard() {
         {/* Cadastros table */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
           <div className="flex flex-col gap-3 mb-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
               <h2 className="text-base sm:text-lg font-semibold shrink-0">Cadastros ({formatNumber(filteredJourneys.length)})</h2>
               <div className="flex flex-1 gap-2">
                 <input
@@ -986,7 +986,7 @@ export default function Dashboard() {
               {selectedUser.id && (
                 <div className="bg-gray-800/30 rounded-xl p-3">
                   <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Pipeline CRM</div>
-                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  <div className="flex flex-wrap gap-1.5">
                     {CRM_STAGES.map(stage => {
                       const isActive = (selectedUser.crmStage || "novo") === stage.key;
                       return (
@@ -1141,7 +1141,7 @@ function MetricCard({ label, value, sub, color, onClick }: {
 }) {
   return (
     <div
-      className={`bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50 relative overflow-hidden transition-all duration-200 ${onClick ? "cursor-pointer hover:border-gray-600 hover:bg-gray-800/60" : ""}`}
+      className={`bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-4 border border-gray-800/50 relative overflow-hidden transition-all duration-200 ${onClick ? "cursor-pointer hover:border-gray-600 hover:bg-gray-800/60" : ""}`}
       onClick={onClick}
     >
       <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ background: `radial-gradient(circle at 80% 20%, ${color}, transparent 60%)` }} />
@@ -1248,10 +1248,10 @@ function FilterRow({ filters, onChange, options }: {
   onChange: (f: AdvancedFilters) => void;
   options: { professions: string[]; softwares: string[]; whatBroughts: string[]; states: string[] };
 }) {
-  const sel = "bg-gray-800/50 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  const sel = "w-full sm:w-auto bg-gray-800/50 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500";
   const active = countActiveFilters(filters) > 0;
   return (
-    <div className="flex flex-wrap gap-2 items-center">
+    <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 items-center">
       <select value={filters.profession} onChange={e => onChange({ ...filters, profession: e.target.value })} className={sel}>
         <option value="">Todas profissões</option>
         {options.professions.map(p => <option key={p} value={p}>{PROFESSION_LABELS[p] || p}</option>)}
@@ -1283,7 +1283,7 @@ function FilterRow({ filters, onChange, options }: {
         {CRM_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
       </select>
       {active && (
-        <button onClick={() => onChange(EMPTY_FILTERS)} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-1">
+        <button onClick={() => onChange(EMPTY_FILTERS)} className="col-span-2 sm:col-span-1 text-xs text-gray-500 hover:text-gray-300 transition-colors px-1 text-left sm:text-center">
           Limpar filtros
         </button>
       )}
