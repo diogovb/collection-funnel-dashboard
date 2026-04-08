@@ -4,6 +4,70 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 
+// ─── DDD → State mapping ────────────────────────────────────────────────────
+const DDD_TO_STATE: Record<string, string> = {
+  "11": "SP", "12": "SP", "13": "SP", "14": "SP", "15": "SP",
+  "16": "SP", "17": "SP", "18": "SP", "19": "SP",
+  "21": "RJ", "22": "RJ", "24": "RJ",
+  "27": "ES", "28": "ES",
+  "31": "MG", "32": "MG", "33": "MG", "34": "MG", "35": "MG",
+  "37": "MG", "38": "MG",
+  "41": "PR", "42": "PR", "43": "PR", "44": "PR", "45": "PR", "46": "PR",
+  "47": "SC", "48": "SC", "49": "SC",
+  "51": "RS", "53": "RS", "54": "RS", "55": "RS",
+  "61": "DF",
+  "62": "GO", "64": "GO",
+  "63": "TO",
+  "65": "MT", "66": "MT",
+  "67": "MS",
+  "68": "AC",
+  "69": "RO",
+  "71": "BA", "73": "BA", "74": "BA", "75": "BA", "77": "BA",
+  "79": "SE",
+  "81": "PE", "87": "PE",
+  "82": "AL",
+  "83": "PB",
+  "84": "RN",
+  "85": "CE", "88": "CE",
+  "86": "PI", "89": "PI",
+  "91": "PA", "93": "PA", "94": "PA",
+  "92": "AM", "97": "AM",
+  "95": "RR",
+  "96": "AP",
+  "98": "MA", "99": "MA",
+};
+
+const STATE_NAMES: Record<string, string> = {
+  SP: "São Paulo", RJ: "Rio de Janeiro", MG: "Minas Gerais",
+  BA: "Bahia", PR: "Paraná", RS: "Rio Grande do Sul",
+  PE: "Pernambuco", CE: "Ceará", PA: "Pará", SC: "Santa Catarina",
+  MA: "Maranhão", GO: "Goiás", AM: "Amazonas", ES: "Espírito Santo",
+  PB: "Paraíba", RN: "Rio Grande do Norte", MT: "Mato Grosso",
+  AL: "Alagoas", PI: "Piauí", DF: "Distrito Federal",
+  MS: "Mato Grosso do Sul", SE: "Sergipe", RO: "Rondônia",
+  TO: "Tocantins", AC: "Acre", AP: "Amapá", RR: "Roraima",
+};
+
+function extractDDD(phone: string): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, "");
+  const local = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+  if (local.length >= 2) return local.slice(0, 2);
+  return null;
+}
+
+function dddToState(phone: string): string | null {
+  const ddd = extractDDD(phone);
+  if (!ddd) return null;
+  return DDD_TO_STATE[ddd] || null;
+}
+
+function waLink(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const number = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${number}`;
+}
+
 const FUNNEL_STEPS = [
   { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
   { key: "first_download", label: "1º Download", icon: "📥", desc: "Baixaram o primeiro bloco" },
@@ -38,6 +102,9 @@ interface UserJourney {
   method: string;
   platform: string;
   phone: string;
+  software: string;
+  whatBrought: string;
+  state: string | null;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -47,6 +114,9 @@ interface UserJourney {
 }
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
+
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step";
+type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -69,9 +139,11 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState("");
+  const [profFilter, setProfFilter] = useState("");
   const [userPage, setUserPage] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
-  const [selectedStep, setSelectedStep] = useState<string | null>(null);
+  const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
+  const [view, setView] = useState<"dashboard" | "drillList" | "userDetail">("dashboard");
   const USERS_PER_PAGE = 20;
 
   const dateFrom = useMemo(() => {
@@ -155,6 +227,7 @@ export default function Dashboard() {
         map.set(key, {
           key,
           name: "", email: "", profession: "", method: "", platform: "", phone: "",
+          software: "", whatBrought: "", state: null,
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -171,12 +244,15 @@ export default function Dashboard() {
       if (m.method && !j.method && ev.event === "signup_completed") j.method = m.method;
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
+      if (m.software && !j.software && ev.event === "signup_completed") j.software = m.software;
+      if (m.what_brought && !j.whatBrought && ev.event === "signup_completed") j.whatBrought = m.what_brought;
       if (FUNNEL_STEPS.some(s => s.key === ev.event)) j.stepsCompleted.add(ev.event);
       if (ev.created_at > j.lastSeen) j.lastSeen = ev.created_at;
       if (ev.created_at < j.firstSeen) j.firstSeen = ev.created_at;
     }
 
     for (const j of map.values()) {
+      if (j.phone) j.state = dddToState(j.phone);
       for (let i = FUNNEL_STEPS.length - 1; i >= 0; i--) {
         if (j.stepsCompleted.has(FUNNEL_STEPS[i].key)) {
           j.lastStep = FUNNEL_STEPS[i].key;
@@ -192,7 +268,6 @@ export default function Dashboard() {
   const funnelCounts = useMemo(() => {
     return FUNNEL_STEPS.map(s => ({
       ...s,
-      // first_download only counts users who also have signup_completed (real funnel)
       count: journeys.filter(j =>
         j.stepsCompleted.has(s.key) &&
         (s.key === "signup_completed" || j.stepsCompleted.has("signup_completed"))
@@ -200,12 +275,17 @@ export default function Dashboard() {
     }));
   }, [journeys]);
 
+  const signupJourneys = useMemo(() => journeys.filter(j => j.stepsCompleted.has("signup_completed")), [journeys]);
+
   const analytics = useMemo(() => {
     const profs = new Map<string, number>();
     const platforms = new Map<string, number>();
     const methods = new Map<string, number>();
+    const softwares = new Map<string, number>();
+    const whatBroughts = new Map<string, number>();
+    const states = new Map<string, number>();
 
-    for (const j of journeys.filter(j => j.stepsCompleted.has("signup_completed"))) {
+    for (const j of signupJourneys) {
       const profLabel = j.profession ? (PROFESSION_LABELS[j.profession] || j.profession) : "Não informado";
       profs.set(profLabel, (profs.get(profLabel) || 0) + 1);
 
@@ -214,29 +294,81 @@ export default function Dashboard() {
 
       const methLabel = j.method ? (j.method === "google" ? "Google" : "Email/Senha") : "Não informado";
       methods.set(methLabel, (methods.get(methLabel) || 0) + 1);
+
+      const swLabel = j.software || "Não informado";
+      softwares.set(swLabel, (softwares.get(swLabel) || 0) + 1);
+
+      const wbLabel = j.whatBrought || "Não informado";
+      whatBroughts.set(wbLabel, (whatBroughts.get(wbLabel) || 0) + 1);
+
+      if (j.state) {
+        const stateLabel = `${j.state} — ${STATE_NAMES[j.state] || j.state}`;
+        states.set(stateLabel, (states.get(stateLabel) || 0) + 1);
+      }
     }
 
     return {
       professions: Array.from(profs.entries()).sort((a, b) => b[1] - a[1]),
       platforms: Array.from(platforms.entries()).sort((a, b) => b[1] - a[1]),
       methods: Array.from(methods.entries()).sort((a, b) => b[1] - a[1]),
+      softwares: Array.from(softwares.entries()).sort((a, b) => b[1] - a[1]),
+      whatBroughts: Array.from(whatBroughts.entries()).sort((a, b) => b[1] - a[1]),
+      states: Array.from(states.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8),
     };
+  }, [signupJourneys]);
+
+  const drillJourneys = useMemo(() => {
+    if (!drillFilter) return [];
+    if (drillFilter.type === "step") {
+      return journeys.filter(j =>
+        j.stepsCompleted.has(drillFilter.value) &&
+        (drillFilter.value === "signup_completed" || j.stepsCompleted.has("signup_completed"))
+      );
+    }
+    return signupJourneys.filter(j => {
+      switch (drillFilter.type) {
+        case "profession":
+          return (PROFESSION_LABELS[j.profession] || j.profession || "Não informado") === drillFilter.value;
+        case "platform":
+          return (j.platform === "mobile" ? "Mobile" : j.platform ? "Desktop" : "Não informado") === drillFilter.value;
+        case "method":
+          return (j.method === "google" ? "Google" : j.method ? "Email/Senha" : "Não informado") === drillFilter.value;
+        case "software":
+          return (j.software || "Não informado") === drillFilter.value;
+        case "whatBrought":
+          return (j.whatBrought || "Não informado") === drillFilter.value;
+        case "state":
+          return (j.state ?? null) === drillFilter.value;
+        default:
+          return false;
+      }
+    });
+  }, [journeys, signupJourneys, drillFilter]);
+
+  const allProfessions = useMemo(() => {
+    const set = new Set<string>();
+    for (const j of journeys) if (j.profession) set.add(j.profession);
+    return Array.from(set);
   }, [journeys]);
 
-  const usersAtStep = useMemo(() => selectedStep ? journeys.filter(j =>
-    j.stepsCompleted.has(selectedStep) &&
-    (selectedStep === "signup_completed" || j.stepsCompleted.has("signup_completed"))
-  ) : [], [journeys, selectedStep]);
-
   const filteredJourneys = useMemo(() => {
-    if (!searchTerm) return journeys;
-    const q = searchTerm.toLowerCase();
-    return journeys.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.profession?.toLowerCase().includes(q));
-  }, [journeys, searchTerm]);
+    let list = journeys;
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(j => j.name?.toLowerCase().includes(q) || j.email?.toLowerCase().includes(q) || j.profession?.toLowerCase().includes(q));
+    }
+    if (profFilter) list = list.filter(j => j.profession === profFilter);
+    return list;
+  }, [journeys, searchTerm, profFilter]);
 
   const pagedJourneys = filteredJourneys.slice(userPage * USERS_PER_PAGE, (userPage + 1) * USERS_PER_PAGE);
   const totalPages = Math.ceil(filteredJourneys.length / USERS_PER_PAGE);
   const topCount = funnelCounts[0]?.count || 1;
+
+  function openDrill(type: DrillType, value: string, label: string) {
+    setDrillFilter({ type, value, label });
+    setView("drillList");
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -311,7 +443,6 @@ export default function Dashboard() {
 
               return (
                 <div key={step.key}>
-                  {/* Conversion connector between steps */}
                   {i > 0 && (
                     <div className="flex items-center justify-center py-3 gap-3">
                       <div className="flex-1 border-t border-dashed border-gray-800" />
@@ -327,10 +458,9 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Funnel bar — centered, narrowing */}
                   <div
                     className="cursor-pointer group"
-                    onClick={() => setSelectedStep(step.key)}
+                    onClick={() => openDrill("step", step.key, step.label)}
                   >
                     <div className="flex items-center gap-3 mb-1.5 px-1">
                       <span className="text-base">{step.icon}</span>
@@ -338,7 +468,6 @@ export default function Dashboard() {
                       <span className="text-xs text-gray-500 ml-auto">{step.desc}</span>
                     </div>
                     <div className="relative h-11 bg-gray-800/40 rounded-xl overflow-hidden group-hover:bg-gray-800/60 transition-colors">
-                      {/* centered funnel bar */}
                       <div
                         className="absolute top-0 bottom-0 rounded-xl transition-all duration-700"
                         style={{
@@ -347,7 +476,6 @@ export default function Dashboard() {
                           background: `linear-gradient(90deg, ${FUNNEL_COLORS[i]}99, ${FUNNEL_COLORS[i]}, ${FUNNEL_COLORS[i]}99)`,
                         }}
                       />
-                      {/* count label inside bar */}
                       <div className="absolute inset-0 flex items-center justify-center gap-2">
                         <span className="text-base font-bold tabular-nums drop-shadow-md">{step.count}</span>
                         <span className="text-xs text-white/60 drop-shadow-md">
@@ -362,11 +490,45 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Segmentation */}
+        {/* Segmentation row 1 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <SegCard title="Plataforma" data={analytics.platforms} />
-          <SegCard title="Método de cadastro" data={analytics.methods} />
-          <SegCard title="Profissão" data={analytics.professions.slice(0, 6)} />
+          <SegCard
+            title="Plataforma"
+            data={analytics.platforms}
+            onItemClick={(label) => openDrill("platform", label, label)}
+          />
+          <SegCard
+            title="Método de cadastro"
+            data={analytics.methods}
+            onItemClick={(label) => openDrill("method", label, label)}
+          />
+          <SegCard
+            title="Profissão"
+            data={analytics.professions.slice(0, 6)}
+            onItemClick={(label) => openDrill("profession", label, label)}
+          />
+        </div>
+
+        {/* Segmentation row 2 */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SegCard
+            title="Software"
+            data={analytics.softwares.slice(0, 6)}
+            onItemClick={(label) => openDrill("software", label, label)}
+          />
+          <SegCard
+            title="Interesse (what_brought)"
+            data={analytics.whatBroughts.slice(0, 6)}
+            onItemClick={(label) => openDrill("whatBrought", label, label)}
+          />
+          <SegCard
+            title="Estado (DDD)"
+            data={analytics.states.slice(0, 6)}
+            onItemClick={(label) => {
+              const code = label.split(" — ")[0];
+              openDrill("state", code, label);
+            }}
+          />
         </div>
 
         {/* Automations */}
@@ -376,27 +538,41 @@ export default function Dashboard() {
 
         {/* User list */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-3 sm:p-6 border border-gray-800/50">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-            <h2 className="text-base sm:text-lg font-semibold">Usuários ({filteredJourneys.length})</h2>
-            <input
-              type="text"
-              placeholder="Buscar por nome ou email..."
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setUserPage(0); }}
-              className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm w-full sm:w-72 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
+            <h2 className="text-base sm:text-lg font-semibold shrink-0">Usuários ({filteredJourneys.length})</h2>
+            <div className="flex flex-1 flex-col sm:flex-row gap-2 w-full">
+              <input
+                type="text"
+                placeholder="Buscar por nome ou email..."
+                value={searchTerm}
+                onChange={e => { setSearchTerm(e.target.value); setUserPage(0); }}
+                className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={profFilter}
+                onChange={e => { setProfFilter(e.target.value); setUserPage(0); }}
+                className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Todas as profissões</option>
+                {allProfessions.map(p => (
+                  <option key={p} value={p}>{PROFESSION_LABELS[p] || p}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="space-y-2">
             {pagedJourneys.map(j => (
               <div
                 key={j.key}
-                className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all"
-                onClick={() => setSelectedUser(j)}
+                className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all group"
+                onClick={() => { setSelectedUser(j); setView("userDetail"); }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm truncate">{j.name || j.email || j.key.slice(0, 8) + "…"}</span>
+                      <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
+                        {j.name || j.email || j.key.slice(0, 8) + "…"}
+                      </span>
                       {j.profession && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                           {PROFESSION_LABELS[j.profession] || j.profession}
@@ -405,6 +581,11 @@ export default function Dashboard() {
                       {j.platform && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300">
                           {j.platform === "mobile" ? "Mobile" : "Desktop"}
+                        </span>
+                      )}
+                      {j.state && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                          {j.state}
                         </span>
                       )}
                     </div>
@@ -440,36 +621,69 @@ export default function Dashboard() {
       </div>
 
       {/* User detail modal */}
-      {selectedUser && (
+      {view === "userDetail" && selectedUser && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
-          onClick={() => setSelectedUser(null)}
+          onClick={() => { setSelectedUser(null); setView(drillFilter ? "drillList" : "dashboard"); }}
         >
           <div
             className="bg-gray-900 sm:rounded-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[85vh] overflow-hidden border-0 sm:border border-gray-700"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <div>
-                <h3 className="text-lg font-semibold">{selectedUser.name || selectedUser.email || "Usuário"}</h3>
-                <p className="text-xs text-gray-400">{selectedUser.email || selectedUser.key}</p>
+              <div className="flex items-center gap-3 min-w-0">
+                {drillFilter && (
+                  <button
+                    onClick={() => { setSelectedUser(null); setView("drillList"); }}
+                    className="shrink-0 text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1"
+                  >
+                    ← Voltar
+                  </button>
+                )}
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold truncate">{selectedUser.name || selectedUser.email || "Usuário"}</h3>
+                  <p className="text-xs text-gray-400">{selectedUser.email || selectedUser.key}</p>
+                </div>
               </div>
-              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
+              <button onClick={() => { setSelectedUser(null); setView(drillFilter ? "drillList" : "dashboard"); }} className="text-gray-400 hover:text-white text-xl shrink-0">✕</button>
             </div>
             <div className="p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(85vh-60px)] space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
                 <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />
-                <Meta label="WhatsApp" value={selectedUser.phone || "—"} />
+                <Meta label="Estado" value={selectedUser.state ? `${selectedUser.state} — ${STATE_NAMES[selectedUser.state] || ""}` : "—"} />
+                <Meta label="Software" value={selectedUser.software || "—"} />
+                <Meta label="Interesse" value={selectedUser.whatBrought || "—"} />
                 <Meta label="Desde" value={selectedUser.firstSeen ? formatDate(selectedUser.firstSeen) : "—"} />
               </div>
+
+              {/* Phone + WhatsApp */}
+              {selectedUser.phone && (
+                <div className="bg-gray-800/40 rounded-xl p-3 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Telefone / WhatsApp</div>
+                    <div className="text-sm text-gray-200 font-medium">{selectedUser.phone}</div>
+                  </div>
+                  <a
+                    href={waLink(selectedUser.phone)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 border border-green-700/40 text-sm font-medium transition-all"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+                    </svg>
+                    WhatsApp
+                  </a>
+                </div>
+              )}
+
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Eventos</p>
                 <div className="space-y-1.5">
-                  {selectedUser.allEvents.filter(ev => [
-                    "signup_completed", "onboarding_started", "first_download"
-                  ].includes(ev.event)).map(ev => {
+                  {selectedUser.allEvents.filter(ev => ["signup_completed", "first_download"].includes(ev.event)).map(ev => {
                     const step = FUNNEL_STEPS.find(s => s.key === ev.event);
                     return (
                       <div key={ev.id} className="bg-gray-800/30 rounded-lg p-3 flex items-center justify-between gap-2">
@@ -493,40 +707,68 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Step drill-down modal */}
-      {selectedStep && (
+      {/* Drill list modal */}
+      {view === "drillList" && drillFilter && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50"
-          onClick={() => setSelectedStep(null)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-40"
+          onClick={() => { setDrillFilter(null); setView("dashboard"); }}
         >
           <div
-            className="bg-gray-900 sm:rounded-2xl max-w-3xl w-full h-full sm:h-auto sm:max-h-[80vh] overflow-hidden border-0 sm:border border-gray-700"
+            className="bg-gray-900 sm:rounded-2xl max-w-lg w-full h-full sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden border-0 sm:border border-gray-700"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{FUNNEL_STEPS.find(s => s.key === selectedStep)?.icon}</span>
-                <h3 className="text-lg font-semibold">{FUNNEL_STEPS.find(s => s.key === selectedStep)?.label}</h3>
-                <span className="text-sm text-gray-400">({usersAtStep.length} usuários)</span>
+            <div className="flex items-center gap-3 p-4 border-b border-gray-700 shrink-0">
+              <button
+                onClick={() => { setDrillFilter(null); setView("dashboard"); }}
+                className="text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1 shrink-0"
+              >
+                ← Voltar
+              </button>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold truncate">Usuários — {drillFilter.label}</h3>
+                <p className="text-xs text-gray-500">{drillJourneys.length} usuário{drillJourneys.length !== 1 ? "s" : ""}</p>
               </div>
-              <button onClick={() => setSelectedStep(null)} className="text-gray-400 hover:text-white text-xl">✕</button>
             </div>
-            <div className="p-3 sm:p-4 overflow-y-auto h-[calc(100vh-60px)] sm:h-auto sm:max-h-[calc(80vh-60px)] space-y-2">
-              {usersAtStep.map(j => (
-                <div
-                  key={j.key}
-                  className="bg-gray-800/30 rounded-lg p-3 hover:bg-gray-800/50 cursor-pointer transition-all"
-                  onClick={() => { setSelectedStep(null); setSelectedUser(j); }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-sm">{j.name || j.email || j.key.slice(0, 8) + "…"}</div>
-                      <div className="text-xs text-gray-400">{j.email || "Sem email"}</div>
+            <div className="overflow-y-auto flex-1 p-3 space-y-2">
+              {drillJourneys.length === 0 ? (
+                <p className="text-sm text-gray-500 py-8 text-center">Nenhum usuário encontrado</p>
+              ) : (
+                drillJourneys.map(j => (
+                  <div
+                    key={j.key}
+                    className="bg-gray-800/40 rounded-lg p-3 hover:bg-gray-800/70 cursor-pointer transition-all group"
+                    onClick={() => { setSelectedUser(j); setView("userDetail"); }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
+                            {j.name || j.email || j.key.slice(0, 8) + "…"}
+                          </span>
+                          {j.state && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">{j.state}</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">{j.email || "Sem email"}</p>
+                        {j.phone && (
+                          <a
+                            href={waLink(j.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-green-500 hover:text-green-400 mt-0.5 inline-block"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            {j.phone}
+                          </a>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 shrink-0 text-right">
+                        <div>{j.lastStepLabel || "—"}</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">{j.platform || "—"}</div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -551,7 +793,11 @@ function SummaryCard({ label, value, sub, conversion, color }: {
   );
 }
 
-function SegCard({ title, data }: { title: string; data: [string, number][] }) {
+function SegCard({ title, data, onItemClick }: {
+  title: string;
+  data: [string, number][];
+  onItemClick?: (label: string) => void;
+}) {
   const total = data.reduce((acc, [, v]) => acc + v, 0);
   return (
     <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50">
@@ -561,11 +807,15 @@ function SegCard({ title, data }: { title: string; data: [string, number][] }) {
           <p className="text-xs text-gray-500">Sem dados</p>
         ) : (
           data.map(([label, value], i) => (
-            <div key={label}>
+            <div
+              key={label}
+              className={onItemClick ? "cursor-pointer group/seg" : ""}
+              onClick={() => onItemClick?.(label)}
+            >
               <div className="flex items-center justify-between text-xs mb-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SEG_COLORS[i % SEG_COLORS.length] }} />
-                  <span className="truncate text-gray-300">{label}</span>
+                  <span className="truncate text-gray-300 group-hover/seg:text-white transition-colors">{label}</span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
                   <span className="font-medium text-gray-200">{value}</span>
@@ -575,7 +825,7 @@ function SegCard({ title, data }: { title: string; data: [string, number][] }) {
               </div>
               <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all duration-700"
+                  className="h-full rounded-full transition-all duration-700 group-hover/seg:brightness-125"
                   style={{
                     width: `${total > 0 ? (value / total) * 100 : 0}%`,
                     backgroundColor: SEG_COLORS[i % SEG_COLORS.length],
