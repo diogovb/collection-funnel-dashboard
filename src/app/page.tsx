@@ -835,14 +835,12 @@ export default function Dashboard() {
               )}
 
               {selectedUser.email && (
-                <div className="border-t border-gray-800 pt-3">
-                  <UserActionsList email={selectedUser.email} />
-                </div>
+                <UserActionsList email={selectedUser.email} />
               )}
 
               {/* Delete */}
               {selectedUser.id && (
-                <div className="pt-2 border-t border-gray-800">
+                <div className="pt-2">
                   {confirmDelete ? (
                     <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 space-y-3">
                       <p className="text-sm text-red-300 font-medium">Tem certeza que quer deletar este cadastro?</p>
