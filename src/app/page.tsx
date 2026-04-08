@@ -570,24 +570,6 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Funnel summary cards */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-4">
-          {funnelCounts.map((step, i) => {
-            const prev = i > 0 ? funnelCounts[i - 1].count : null;
-            const conv = prev !== null && prev > 0 ? ((step.count / prev) * 100).toFixed(1) + "%" : null;
-            return (
-              <SummaryCard
-                key={step.key}
-                label={step.label}
-                value={step.count}
-                sub={step.desc}
-                conversion={conv}
-                color={FUNNEL_COLORS[i]}
-              />
-            );
-          })}
-        </div>
-
         {/* Cadastros per day chart */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 sm:p-6 border border-gray-800/50">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-5">Cadastros por dia (últimos 15 dias)</h2>
