@@ -31,8 +31,24 @@ export async function POST(request: NextRequest) {
     let email = rawEmail;
     if (!email && user_id) {
       const { data: userData, error: authError } = await supabaseAdmin.auth.admin.getUserById(user_id);
-      if (authError || !userData?.user?.email) {
-        return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404, headers: CORS_HEADERS });
+      if (authError) {
+        console.error("getUserById error:", authError);
+        return NextResponse.json(
+          { error: "Falha ao buscar usuário", detail: authError.message, user_id },
+          { status: 404, headers: CORS_HEADERS }
+        );
+      }
+      if (!userData?.user) {
+        return NextResponse.json(
+          { error: "Usuário não encontrado", user_id },
+          { status: 404, headers: CORS_HEADERS }
+        );
+      }
+      if (!userData.user.email) {
+        return NextResponse.json(
+          { error: "Usuário não tem email", user_id, user: userData.user.id },
+          { status: 422, headers: CORS_HEADERS }
+        );
       }
       email = userData.user.email;
     }
@@ -64,12 +80,12 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error("Erro ao inserir evento:", error);
-      return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500, headers: CORS_HEADERS });
+      return NextResponse.json({ error: "Erro ao inserir evento", detail: error.message }, { status: 500, headers: CORS_HEADERS });
     }
 
     return NextResponse.json({ success: true }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("Erro ao processar request:", error);
-    return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500, headers: CORS_HEADERS });
+    return NextResponse.json({ error: "Erro interno do servidor", detail: String(error) }, { status: 500, headers: CORS_HEADERS });
   }
 }
