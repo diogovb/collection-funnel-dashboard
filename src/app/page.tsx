@@ -157,7 +157,7 @@ interface UserJourney {
   renderCount: number;
 }
 
-type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
+type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
 type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
@@ -201,6 +201,7 @@ export default function Dashboard() {
 
   const dateFrom = useMemo(() => {
     if (preset === "today") return todayStart();
+    if (preset === "yesterday") { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(0, 0, 0, 0); return d.toISOString(); }
     if (preset === "7d") return daysAgo(7);
     if (preset === "30d") return daysAgo(30);
     if (preset === "90d") return daysAgo(90);
@@ -209,6 +210,7 @@ export default function Dashboard() {
   }, [preset, customFrom]);
 
   const dateTo = useMemo(() => {
+    if (preset === "yesterday") { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(23, 59, 59, 999); return d.toISOString(); }
     if (preset === "custom" && customTo) return new Date(customTo + "T23:59:59").toISOString();
     return new Date().toISOString();
   }, [preset, customTo]);
@@ -575,7 +577,7 @@ export default function Dashboard() {
 
         {/* Date filters */}
         <div className="flex flex-wrap items-center gap-2">
-          {(["today", "7d", "30d", "90d", "custom"] as DatePreset[]).map(p => (
+          {(["today", "yesterday", "7d", "30d", "90d", "custom"] as DatePreset[]).map(p => (
             <button
               key={p}
               onClick={() => { setPreset(p); setUserPage(0); }}
@@ -585,7 +587,7 @@ export default function Dashboard() {
                   : "bg-gray-800/50 text-gray-300 hover:bg-gray-700/60 border border-gray-700/50"
               }`}
             >
-              {p === "today" ? "Hoje" : p === "7d" ? "7d" : p === "30d" ? "30d" : p === "90d" ? "90d" : "Custom"}
+              {p === "today" ? "Hoje" : p === "yesterday" ? "Ontem" : p === "7d" ? "7d" : p === "30d" ? "30d" : p === "90d" ? "90d" : "Custom"}
             </button>
           ))}
           {preset === "custom" && (
