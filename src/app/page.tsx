@@ -534,9 +534,9 @@ export default function Dashboard() {
       if (j.state) stSet.add(j.state);
     }
     return {
-      professions: Array.from(profSet).sort((a, b) => (PROFESSION_LABELS[a] || a || "").localeCompare(PROFESSION_LABELS[b] || b || "", "pt-BR")),
-      softwares: Array.from(swSet).sort((a, b) => (a || "").localeCompare(b || "", "pt-BR")),
-      whatBroughts: Array.from(wbSet).sort((a, b) => (a || "").localeCompare(b || "", "pt-BR")),
+      professions: Array.from(profSet).sort((a, b) => String(PROFESSION_LABELS[a] || a).localeCompare(String(PROFESSION_LABELS[b] || b), "pt-BR")),
+      softwares: Array.from(swSet).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")),
+      whatBroughts: Array.from(wbSet).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")),
       states: Array.from(stSet).sort(),
     };
   }, [signupJourneys]);
