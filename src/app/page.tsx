@@ -359,17 +359,6 @@ export default function Dashboard() {
   }, [signupJourneys]);
   const maxDayCount = useMemo(() => Math.max(...signupsByDay.map(d => d.count), 1), [signupsByDay]);
 
-  // ─── Hourly distribution ────────────────────────────────────────────────────
-  const hourlyDist = useMemo(() => {
-    const counts = Array(24).fill(0) as number[];
-    for (const j of signupJourneys) {
-      const h = new Date(j.firstSeen).getHours();
-      counts[h]++;
-    }
-    return counts;
-  }, [signupJourneys]);
-  const maxHour = useMemo(() => Math.max(...hourlyDist, 1), [hourlyDist]);
-
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
     const profs = new Map<string, number>();
@@ -633,45 +622,6 @@ export default function Dashboard() {
         {hasCampaigns && (
           <SegCard title="Campanhas (UTM)" data={campaignSeg} onItemClick={(label) => openDrill("campaign", label, label)} />
         )}
-
-        {/* Hourly distribution */}
-        <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Distribuição por hora do dia</h2>
-          {signupJourneys.length === 0 && !loading ? (
-            <p className="text-xs text-gray-500">Sem dados</p>
-          ) : (
-            <div className="flex items-end gap-1 h-48">
-              {hourlyDist.map((count, h) => {
-                const heightPct = maxHour > 0 ? (count / maxHour) * 100 : 0;
-                return (
-                  <div
-                    key={h}
-                    className={`flex-1 flex flex-col items-center gap-0.5 group relative ${count > 0 ? "cursor-pointer" : ""}`}
-                    onClick={() => { if (count > 0) { openDrill("hour", String(h), `${h}h`); } }}
-                  >
-                    <div
-                      className="w-full rounded-t transition-all duration-500 group-hover:brightness-125"
-                      style={{
-                        height: `${Math.max(heightPct, count > 0 ? 8 : 0)}%`,
-                        minHeight: count > 0 ? "10px" : undefined,
-                        background: "linear-gradient(180deg, #6366f1, #a855f7)",
-                        opacity: count > 0 ? 1 : 0.15,
-                      }}
-                    />
-                    {count > 0 && (
-                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-white px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                        {h}h: {count}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className="flex justify-between text-[10px] text-gray-600 mt-1">
-            <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
-          </div>
-        </div>
 
         {/* Email domains */}
         <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-6 border border-gray-800/50">
