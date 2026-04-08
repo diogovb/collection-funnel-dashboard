@@ -18,10 +18,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { event_type, email, metadata } = await request.json();
+    const { event_type, email: rawEmail, user_id, metadata } = await request.json();
 
-    if (!event_type || !email) {
-      return NextResponse.json({ error: "event_type e email são obrigatórios" }, { status: 400, headers: CORS_HEADERS });
+    if (!event_type) {
+      return NextResponse.json({ error: "event_type é obrigatório" }, { status: 400, headers: CORS_HEADERS });
+    }
+
+    if (!rawEmail && !user_id) {
+      return NextResponse.json({ error: "email ou user_id são obrigatórios" }, { status: 400, headers: CORS_HEADERS });
+    }
+
+    let email = rawEmail;
+    if (!email && user_id) {
+      const { data: userData, error: authError } = await supabaseAdmin.auth.admin.getUserById(user_id);
+      if (authError || !userData?.user?.email) {
+        return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404, headers: CORS_HEADERS });
+      }
+      email = userData.user.email;
     }
 
     if (!["download", "render_ia"].includes(event_type)) {
