@@ -134,7 +134,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 function daysAgo(n: number): string {
@@ -446,6 +446,7 @@ export default function Dashboard() {
   // ─── Drill journeys ─────────────────────────────────────────────────────────
   const drillJourneys = useMemo(() => {
     if (!drillFilter) return [];
+    if (drillFilter.type === "all") return signupJourneys;
     if (drillFilter.type === "step") {
       return journeys.filter(j =>
         j.stepsCompleted.has(drillFilter.value) &&
@@ -554,18 +555,20 @@ export default function Dashboard() {
 
         {/* Metric cards */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4">
-          <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" />
+          <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
           <MetricCard
             label="Mobile"
             value={formatNumber(mobileCount)}
             sub={signupJourneys.length > 0 ? `${((mobileCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
             color="#ec4899"
+            onClick={() => openDrill("platform", "Mobile", "Mobile")}
           />
           <MetricCard
             label="Desktop"
             value={formatNumber(desktopCount)}
             sub={signupJourneys.length > 0 ? `${((desktopCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
             color="#f59e0b"
+            onClick={() => openDrill("platform", "Desktop", "Desktop")}
           />
         </div>
 
@@ -984,11 +987,14 @@ export default function Dashboard() {
   );
 }
 
-function MetricCard({ label, value, sub, color }: {
-  label: string; value: string; sub: string; color: string;
+function MetricCard({ label, value, sub, color, onClick }: {
+  label: string; value: string; sub: string; color: string; onClick?: () => void;
 }) {
   return (
-    <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50 relative overflow-hidden">
+    <div
+      className={`bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50 relative overflow-hidden transition-all duration-200 ${onClick ? "cursor-pointer hover:border-gray-600 hover:bg-gray-800/60" : ""}`}
+      onClick={onClick}
+    >
       <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ background: `radial-gradient(circle at 80% 20%, ${color}, transparent 60%)` }} />
       <div className="text-2xl sm:text-3xl font-bold tabular-nums">{value}</div>
       <div className="text-sm font-medium text-gray-200 mt-1">{label}</div>
