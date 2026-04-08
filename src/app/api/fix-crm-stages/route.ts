@@ -3,6 +3,12 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
 
+function isIcp(software: string, profession: string): boolean {
+  if (ICP_SOFTWARES.has(software)) return true;
+  if (profession?.toLowerCase().includes("estudante")) return true;
+  return false;
+}
+
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get("secret");
   if (secret !== "collection2024") {
@@ -41,7 +47,8 @@ export async function GET(request: NextRequest) {
       }
 
       const software = (m.software as string) || "";
-      const newStage = ICP_SOFTWARES.has(software) ? "novo" : "nao_qualificado";
+      const profession = (m.profession as string) || "";
+      const newStage = isIcp(software, profession) ? "novo" : "nao_qualificado";
 
       // Skip no-ops: ICP match and already "novo" / unset
       if (newStage === "novo") {

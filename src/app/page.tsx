@@ -186,6 +186,11 @@ function countActiveFilters(f: AdvancedFilters): number {
 }
 
 const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
+function isIcp(software: string, profession: string): boolean {
+  if (ICP_SOFTWARES.has(software)) return true;
+  if (profession?.toLowerCase().includes("estudante")) return true;
+  return false;
+}
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -405,7 +410,7 @@ export default function Dashboard() {
       if (j.phone) j.state = dddToState(j.phone);
       // Apply ICP-based default when crm_stage was never explicitly set in metadata
       if (!explicitCrmStages.has(j.key)) {
-        j.crmStage = ICP_SOFTWARES.has(j.software) ? "novo" : "nao_qualificado";
+        j.crmStage = isIcp(j.software, j.profession) ? "novo" : "nao_qualificado";
       }
       for (let i = FUNNEL_STEPS.length - 1; i >= 0; i--) {
         if (j.stepsCompleted.has(FUNNEL_STEPS[i].key)) {
