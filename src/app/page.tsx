@@ -930,6 +930,19 @@ export default function Dashboard() {
                             {j.phone}
                           </a>
                         )}
+                        {(j.profession || j.software || j.whatBrought) && (
+                          <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                            {j.profession && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300">{PROFESSION_LABELS[j.profession] || j.profession}</span>
+                            )}
+                            {j.software && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300">{j.software}</span>
+                            )}
+                            {j.whatBrought && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 truncate max-w-[140px]">{j.whatBrought}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500 shrink-0 text-right">
                         <div>{j.lastStepLabel || "—"}</div>
