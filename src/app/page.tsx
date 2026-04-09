@@ -381,7 +381,7 @@ export default function Dashboard() {
       const j = map.get(key)!;
       j.allEvents.push(ev);
       const m = (ev.metadata || {}) as any;
-      if (m.name && !j.name) j.name = m.name;
+      if (m.name && !j.name) j.name = String(m.name).split(" ")[0];
       if (ev.email && !j.email) j.email = ev.email;
       if (m.profession && !j.profession) j.profession = titleCase(String(m.profession));
       if (ev.event === "signup_completed") {
@@ -396,7 +396,7 @@ export default function Dashboard() {
         if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
       if (m.platform && !j.platform) j.platform = m.platform;
-      if ((m.phone || m.whatsapp) && !j.phone) j.phone = m.phone || m.whatsapp;
+      if ((m.phone || m.whatsapp) && !j.phone) j.phone = String(m.phone || m.whatsapp).replace(/\D/g, "");
       if (ev.event === "download") {
         j.downloads.push({ product_name: m.product_name || "", product_brand: m.product_brand || "", product_category: m.product_category || "", date: ev.created_at });
       }

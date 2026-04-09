@@ -35,11 +35,48 @@ interface FunnelAction {
   };
 }
 
-const STAGES = [
-  { key: "signup_completed", label: "Cadastro" },
-  { key: "first_download", label: "Primeiro Download" },
-  { key: "checkout_completed", label: "Pagamento" },
-];
+// ── Trigger definitions ────────────────────────────────────
+const TRIGGERS = [
+  {
+    id: "no_download",
+    label: "Cadastrou e não fez Download",
+    description: "Tem signup_completed mas não baixou nenhum produto",
+    icon: "📥",
+    stage: "signup_completed",
+    next_stage: "download",
+  },
+  {
+    id: "no_render",
+    label: "Cadastrou e não fez Render IA",
+    description: "Tem signup_completed mas não usou o Render IA",
+    icon: "🎨",
+    stage: "signup_completed",
+    next_stage: "render_ia",
+  },
+  {
+    id: "no_action",
+    label: "Cadastrou e não fez nenhuma ação",
+    description: "Tem signup_completed mas não baixou nem renderizou",
+    icon: "🚫",
+    stage: "signup_completed",
+    next_stage: "any_action",
+  },
+] as const;
+
+type TriggerId = typeof TRIGGERS[number]["id"];
+
+function getTriggerFromRule(rule: FunnelRule): TriggerId {
+  if (rule.stage === "signup_completed") {
+    if (rule.next_stage === "download") return "no_download";
+    if (rule.next_stage === "render_ia") return "no_render";
+    if (rule.next_stage === "any_action") return "no_action";
+  }
+  return "no_download";
+}
+
+function getTrigger(id: TriggerId) {
+  return TRIGGERS.find(t => t.id === id) ?? TRIGGERS[0];
+}
 
 const CHANNEL_ICONS: Record<string, string> = {
   email: "📧",
@@ -47,13 +84,20 @@ const CHANNEL_ICONS: Record<string, string> = {
   both: "📧📱",
 };
 
-const STAGE_LABEL = (key: string) => STAGES.find((s) => s.key === key)?.label || key;
+const VARIABLES = [
+  { name: "{{name}}", desc: "primeiro nome" },
+  { name: "{{email}}", desc: "email" },
+  { name: "{{phone}}", desc: "WhatsApp" },
+  { name: "{{profession}}", desc: "profissão" },
+  { name: "{{software}}", desc: "software" },
+  { name: "{{interest}}", desc: "o que trouxe ao Collection" },
+];
 
 function formatDate(d: string) {
   return new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-// ── Email Template (same as Dunning) ──────────────────────
+// ── Email Template ─────────────────────────────────────────
 function wrapEmailHTML(content: string, subject: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -101,13 +145,7 @@ function TestModal({
       const res = await fetch("/api/funnel/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          channel,
-          email: testEmail,
-          phone: testPhone,
-          subject,
-          content,
-        }),
+        body: JSON.stringify({ channel, email: testEmail, phone: testPhone, subject, content }),
       });
       const data = await res.json();
       setResult(data.success ? "✅ Enviado com sucesso!" : `❌ ${data.error || "Erro"}`);
@@ -118,35 +156,35 @@ function TestModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-md border border-gray-700">
-        <div className="flex items-center justify-between p-5 border-b border-gray-700">
-          <h3 className="text-lg font-semibold">🧪 Testar envio</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">✕</button>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+      <div className="bg-[#111827] rounded-2xl w-full max-w-md border border-gray-700/60 shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-gray-700/60">
+          <h3 className="text-base font-semibold">🧪 Testar envio</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors">✕</button>
         </div>
         <div className="p-5 space-y-4">
           {(channel === "email" || channel === "both") && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Email de teste</label>
+              <label className="block text-xs text-gray-400 mb-1.5">Email de teste</label>
               <input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)}
                 placeholder="seu@email.com"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm" />
+                className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
             </div>
           )}
           {(channel === "sms" || channel === "both") && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Telefone de teste</label>
+              <label className="block text-xs text-gray-400 mb-1.5">Telefone de teste</label>
               <input type="tel" value={testPhone} onChange={(e) => setTestPhone(e.target.value)}
                 placeholder="(11) 99999-9999"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm" />
+                className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500" />
             </div>
           )}
-          {result && <p className="text-sm">{result}</p>}
+          {result && <p className="text-sm bg-gray-800/50 rounded-lg px-3 py-2">{result}</p>}
         </div>
-        <div className="flex justify-end gap-3 p-5 border-t border-gray-700">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Fechar</button>
+        <div className="flex justify-end gap-3 p-5 border-t border-gray-700/60">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Fechar</button>
           <button onClick={handleTest} disabled={sending || (!testEmail && !testPhone)}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg text-sm font-medium">
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-lg text-sm font-medium transition-colors">
             {sending ? "Enviando..." : "Enviar teste"}
           </button>
         </div>
@@ -165,22 +203,30 @@ function RuleFormModal({
   onSave: (data: Partial<FunnelRule>) => Promise<void>;
   onClose: () => void;
 }) {
-  const [stage, setStage] = useState(rule?.stage || "signup_completed");
-  const [nextStage, setNextStage] = useState(rule?.next_stage || "onboarding_completed");
-  const [delay, setDelay] = useState(rule?.delay_minutes || 30);
+  const initialTriggerId = rule ? getTriggerFromRule(rule) : "no_download";
+  const [triggerId, setTriggerId] = useState<TriggerId>(initialTriggerId);
+
+  // Delay split into value + unit
+  const initialMinutes = rule?.delay_minutes || 30;
+  const [delayUnit, setDelayUnit] = useState<"minutos" | "horas">(initialMinutes >= 60 && initialMinutes % 60 === 0 ? "horas" : "minutos");
+  const [delayValue, setDelayValue] = useState(delayUnit === "horas" ? initialMinutes / 60 : initialMinutes);
+
   const [channel, setChannel] = useState(rule?.channel || "email");
   const [subject, setSubject] = useState(rule?.subject || "");
   const [content, setContent] = useState(rule?.content || "");
   const [saving, setSaving] = useState(false);
   const [showTest, setShowTest] = useState(false);
 
+  const delayMinutes = delayUnit === "horas" ? delayValue * 60 : delayValue;
+  const trigger = getTrigger(triggerId);
+
   const handleSave = async () => {
     setSaving(true);
     await onSave({
       ...(rule?.id ? { id: rule.id } : {}),
-      stage,
-      next_stage: nextStage,
-      delay_minutes: delay,
+      stage: trigger.stage,
+      next_stage: trigger.next_stage,
+      delay_minutes: delayMinutes,
       channel,
       subject: channel !== "sms" ? subject : null,
       content,
@@ -190,99 +236,166 @@ function RuleFormModal({
     setSaving(false);
   };
 
+  const insertVariable = (varName: string) => {
+    setContent(prev => prev + varName);
+  };
+
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50">
-        <div className="bg-gray-900 sm:rounded-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[90vh] overflow-y-auto border-0 sm:border border-gray-700">
-          <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-700">
-            <h3 className="text-base sm:text-lg font-semibold">{rule?.id ? "Editar Regra" : "Nova Regra"}</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-white text-lg">✕</button>
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4 z-50">
+        <div className="bg-[#0d1117] sm:rounded-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[92vh] overflow-y-auto border-0 sm:border border-gray-700/60 shadow-2xl">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700/60">
+            <h3 className="text-base font-semibold text-white">{rule?.id ? "Editar regra" : "Nova regra de automação"}</h3>
+            <button onClick={onClose} className="text-gray-500 hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700/60 transition-colors">✕</button>
           </div>
 
-          <div className="p-4 sm:p-5 space-y-4">
-            {/* Stage */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Quando chegar em</label>
-                <select value={stage} onChange={(e) => setStage(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm">
-                  {STAGES.map((s) => (
-                    <option key={s.key} value={s.key}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">E não avançar para</label>
-                <select value={nextStage} onChange={(e) => setNextStage(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm">
-                  {STAGES.map((s) => (
-                    <option key={s.key} value={s.key}>{s.label}</option>
-                  ))}
-                </select>
+          <div className="p-5 space-y-6">
+
+            {/* Trigger */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Gatilho</p>
+              <div className="space-y-2">
+                {TRIGGERS.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTriggerId(t.id)}
+                    className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                      triggerId === t.id
+                        ? "border-indigo-500/70 bg-indigo-500/10"
+                        : "border-gray-700/60 bg-gray-800/30 hover:border-gray-600 hover:bg-gray-800/50"
+                    }`}
+                  >
+                    <span className="text-xl mt-0.5 flex-shrink-0">{t.icon}</span>
+                    <div className="min-w-0">
+                      <p className={`text-sm font-medium ${triggerId === t.id ? "text-indigo-300" : "text-gray-200"}`}>{t.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t.description}</p>
+                    </div>
+                    {triggerId === t.id && (
+                      <span className="ml-auto flex-shrink-0 w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] mt-0.5">✓</span>
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Delay + Channel */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Após (minutos)</label>
-                <input type="number" value={delay} onChange={(e) => setDelay(Number(e.target.value))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm" min={1} />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Canal</label>
-                <div className="flex gap-2">
-                  {(["email", "sms", "both"] as const).map((ch) => (
-                    <button key={ch} onClick={() => setChannel(ch)}
-                      className={`flex-1 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
-                        channel === ch ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                      }`}>
-                      {CHANNEL_ICONS[ch]} {ch === "both" ? "Ambos" : ch.toUpperCase()}
+            {/* Delay */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Aguardar antes de enviar</p>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={delayValue}
+                  min={1}
+                  onChange={(e) => setDelayValue(Math.max(1, Number(e.target.value)))}
+                  className="w-24 bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-center font-medium focus:outline-none focus:border-indigo-500"
+                />
+                <div className="flex gap-1.5">
+                  {(["minutos", "horas"] as const).map((u) => (
+                    <button
+                      key={u}
+                      onClick={() => {
+                        if (u === "horas" && delayUnit === "minutos") {
+                          setDelayValue(Math.max(1, Math.round(delayValue / 60)));
+                        } else if (u === "minutos" && delayUnit === "horas") {
+                          setDelayValue(delayValue * 60);
+                        }
+                        setDelayUnit(u);
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        delayUnit === u ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                      }`}
+                    >
+                      {u}
                     </button>
                   ))}
                 </div>
+                <span className="text-xs text-gray-500">= {delayMinutes} min</span>
               </div>
             </div>
 
-            {/* Subject (email only) */}
+            {/* Channel */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Canal</p>
+              <div className="flex gap-2">
+                {(["email", "sms", "both"] as const).map((ch) => (
+                  <button key={ch} onClick={() => setChannel(ch)}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                      channel === ch
+                        ? "bg-indigo-600 border-indigo-500 text-white"
+                        : "bg-gray-800/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300"
+                    }`}>
+                    {CHANNEL_ICONS[ch]} {ch === "both" ? "Ambos" : ch.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Subject */}
             {channel !== "sms" && (
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Assunto do email</label>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Assunto do email</label>
                 <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Ex: Falta pouco! Complete seu cadastro"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm" />
+                  placeholder="Ex: {{name}}, seu acervo te espera 👋"
+                  className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-colors" />
               </div>
             )}
 
             {/* Content */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                {channel === "sms" ? "Mensagem SMS (máx 160 chars)" : "Conteúdo do email (HTML)"}
-              </label>
-              <textarea value={content} onChange={(e) => setContent(e.target.value)}
-                rows={channel === "sms" ? 3 : 6}
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  {channel === "sms" ? "Mensagem SMS" : "Conteúdo do email"}
+                </label>
+                {channel === "sms" && (
+                  <span className={`text-xs font-mono ${content.length > 140 ? "text-amber-400" : "text-gray-500"}`}>
+                    {content.length}/160
+                  </span>
+                )}
+              </div>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={channel === "sms" ? 4 : 7}
                 maxLength={channel === "sms" ? 160 : undefined}
                 placeholder={channel === "sms"
-                  ? "Oi {{name}}! Sua conta Collection está quase pronta..."
-                  : "<h2>Oi {{name}}!</h2><p>Falta pouco para você começar a usar a Collection...</p>"}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm font-mono" />
-              <p className="text-xs text-gray-500 mt-1">
-                Variáveis: {"{{name}}"}, {"{{email}}"}, {"{{phone}}"}
-                {channel === "sms" && ` — ${content.length}/160`}
-              </p>
+                  ? "Oi {{name}}! Sua conta Collection está pronta. Baixe seu primeiro produto agora: https://app.collection.com.br"
+                  : "<h2>Oi {{name}}!</h2>\n<p>Você se cadastrou no Collection mas ainda não explorou o acervo...</p>"}
+                className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+              />
+
+              {/* Variables */}
+              <div className="mt-3 bg-gray-800/30 rounded-xl p-3 border border-gray-700/40">
+                <p className="text-xs text-gray-500 mb-2 font-medium">Variáveis disponíveis:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {VARIABLES.map((v) => (
+                    <button
+                      key={v.name}
+                      onClick={() => insertVariable(v.name)}
+                      title={v.desc}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-gray-700/60 hover:bg-indigo-600/40 border border-gray-600/50 hover:border-indigo-500/50 rounded-md text-xs font-mono text-gray-300 hover:text-indigo-300 transition-all"
+                    >
+                      {v.name}
+                      <span className="text-gray-500 font-sans text-[10px]">— {v.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between gap-3 p-4 sm:p-5 border-t border-gray-700">
+          {/* Footer */}
+          <div className="flex flex-col sm:flex-row justify-between gap-3 px-5 py-4 border-t border-gray-700/60">
             <button onClick={() => setShowTest(true)} disabled={!content}
-              className="px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors order-2 sm:order-1">
+              className="px-4 py-2.5 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors order-2 sm:order-1 border border-gray-600/50">
               🧪 Testar envio
             </button>
             <div className="flex gap-3 order-1 sm:order-2">
-              <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2.5 text-sm text-gray-400 hover:text-white">Cancelar</button>
+              <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors">Cancelar</button>
               <button onClick={handleSave} disabled={saving || !content}
-                className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors">
-                {saving ? "Salvando..." : "Salvar"}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors">
+                {saving ? "Salvando..." : "Salvar regra"}
               </button>
             </div>
           </div>
@@ -359,97 +472,138 @@ export default function AutomationPanel() {
 
   const activeCount = rules.filter((r) => r.active).length;
 
-  const toggleAll = async () => {
-    const newState = activeCount === 0;
-    for (const rule of rules) {
-      await fetch("/api/funnel/rules", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: rule.id, active: newState }),
-      });
-    }
-    fetchRules();
-  };
-
-  if (loading) return <div className="text-gray-500 text-center py-8">Carregando automações...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-12 text-gray-500 text-sm">
+      <span className="animate-pulse">Carregando automações...</span>
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg sm:text-xl font-bold">⚡ Automações</h2>
+          <h2 className="text-lg font-bold text-white">⚡ Automações</h2>
           {rules.length > 0 && (
-            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-              activeCount > 0 ? "bg-green-900/50 text-green-400" : "bg-gray-800 text-gray-400"
+            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+              activeCount > 0 ? "bg-green-900/40 text-green-400 border border-green-800/50" : "bg-gray-800 text-gray-500 border border-gray-700/50"
             }`}>
               {activeCount > 0 ? `${activeCount} ativa${activeCount > 1 ? "s" : ""}` : "Nenhuma ativa"}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button onClick={() => setEditingRule(null)}
-            className="flex-1 sm:flex-none px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs sm:text-sm font-medium transition-colors">
+          <button
+            onClick={handleProcess}
+            disabled={processing}
+            className="flex-1 sm:flex-none px-3 py-2 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-50 rounded-lg text-xs font-medium transition-colors border border-gray-600/50 flex items-center justify-center gap-1.5"
+          >
+            {processing ? (
+              <><span className="animate-spin text-xs">⟳</span> Processando...</>
+            ) : (
+              <>▶ Processar agora</>
+            )}
+          </button>
+          <button
+            onClick={() => setEditingRule(null)}
+            className="flex-1 sm:flex-none px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-medium transition-colors"
+          >
             + Nova regra
           </button>
         </div>
       </div>
 
       {lastResult && (
-        <div className="bg-gray-800/50 rounded-lg px-4 py-2 text-sm">{lastResult}</div>
+        <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm">
+          {lastResult}
+        </div>
       )}
 
-      {/* Rules */}
+      {/* Rules list */}
       {rules.length === 0 ? (
-        <div className="bg-gray-800/30 rounded-xl p-6 sm:p-8 text-center text-gray-500">
-          <p className="text-base sm:text-lg mb-2">Nenhuma regra configurada</p>
-          <p className="text-xs sm:text-sm">Crie regras para enviar SMS e emails automáticos quando usuários pararem no funil</p>
+        <div className="bg-gray-800/20 border border-gray-700/40 rounded-2xl p-10 text-center">
+          <p className="text-2xl mb-3">⚡</p>
+          <p className="text-gray-300 font-medium mb-1">Nenhuma regra configurada</p>
+          <p className="text-sm text-gray-500">Crie regras para enviar SMS e emails automáticos quando usuários pararem no funil</p>
+          <button
+            onClick={() => setEditingRule(null)}
+            className="mt-4 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-medium transition-colors"
+          >
+            Criar primeira regra
+          </button>
         </div>
       ) : (
-        <div className="grid gap-3">
-          {rules.map((rule) => (
-            <div key={rule.id} className={`bg-gray-800/50 rounded-xl p-3 sm:p-4 border transition-colors ${
-              rule.active ? "border-green-800/50" : "border-gray-700/50"
-            }`}>
-              <div className="flex items-start sm:items-center justify-between gap-2">
-                <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-1 min-w-0">
+        <div className="space-y-3">
+          {rules.map((rule) => {
+            const triggerId = getTriggerFromRule(rule);
+            const trigger = getTrigger(triggerId);
+            const delayHours = rule.delay_minutes >= 60 && rule.delay_minutes % 60 === 0;
+            const delayLabel = delayHours
+              ? `${rule.delay_minutes / 60}h`
+              : `${rule.delay_minutes}min`;
+
+            return (
+              <div
+                key={rule.id}
+                className={`rounded-2xl border transition-all ${
+                  rule.active
+                    ? "bg-gray-800/30 border-green-800/40"
+                    : "bg-gray-800/15 border-gray-700/40"
+                }`}
+              >
+                <div className="flex items-center gap-3 px-4 py-3.5">
                   {/* Toggle */}
-                  <button onClick={() => handleToggle(rule)}
-                    className={`w-10 h-5 sm:w-12 sm:h-6 rounded-full transition-colors flex items-center px-0.5 sm:px-1 flex-shrink-0 mt-0.5 sm:mt-0 ${
+                  <button
+                    onClick={() => handleToggle(rule)}
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
                       rule.active ? "bg-green-600" : "bg-gray-600"
-                    }`}>
-                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${
-                      rule.active ? "translate-x-5 sm:translate-x-6" : "translate-x-0"
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      rule.active ? "translate-x-6" : "translate-x-1"
                     }`} />
                   </button>
 
+                  {/* Trigger icon */}
+                  <span className="text-xl flex-shrink-0">{trigger.icon}</span>
+
                   {/* Info */}
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                      <span className="font-medium text-indigo-400">{STAGE_LABEL(rule.stage)}</span>
-                      <span className="text-gray-500">→</span>
-                      <span className="text-gray-400">{rule.next_stage ? STAGE_LABEL(rule.next_stage) : "—"}</span>
-                      <span className="hidden sm:inline text-gray-600">|</span>
-                      <span className="text-gray-400">{rule.delay_minutes}min</span>
-                      <span>{CHANNEL_ICONS[rule.channel]}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                      <span className={`font-medium ${rule.active ? "text-white" : "text-gray-400"}`}>{trigger.label}</span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-1 break-all">
-                      {rule.subject && `📌 ${rule.subject} — `}
-                      {rule.content.replace(/<[^>]*>/g, "").substring(0, 50)}…
-                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-500">após {delayLabel}</span>
+                      <span className="text-gray-700">·</span>
+                      <span className="text-xs text-gray-500">{CHANNEL_ICONS[rule.channel]} {rule.channel === "both" ? "Email + SMS" : rule.channel.toUpperCase()}</span>
+                      {rule.subject && (
+                        <>
+                          <span className="text-gray-700">·</span>
+                          <span className="text-xs text-gray-500 truncate max-w-[180px]">{rule.subject}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => setEditingRule(rule)}
+                      className="text-gray-500 hover:text-gray-200 p-1.5 rounded-lg hover:bg-gray-700/60 transition-colors text-sm"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={() => handleDelete(rule.id)}
+                      className="text-gray-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-900/20 transition-colors text-sm"
+                    >
+                      🗑️
+                    </button>
                   </div>
                 </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => setEditingRule(rule)}
-                    className="text-gray-400 hover:text-white text-sm p-1.5">✏️</button>
-                  <button onClick={() => handleDelete(rule.id)}
-                    className="text-gray-400 hover:text-red-400 text-sm p-1.5">🗑️</button>
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -501,5 +655,4 @@ export function UserActionsList({ email }: { email: string }) {
   );
 }
 
-// Export the email wrapper for use in process route
 export { wrapEmailHTML };
