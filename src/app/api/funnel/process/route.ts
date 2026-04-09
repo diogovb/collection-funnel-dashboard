@@ -117,6 +117,9 @@ function isAuthorized(request: Request): boolean {
   return authHeader === `Bearer ${cronSecret}`;
 }
 
+const MAX_AGE_DAYS = 7;
+const MAX_BATCH_SIZE = 50;
+
 async function processQueue(): Promise<NextResponse> {
   try {
     // 1. Get all active rules
@@ -131,10 +134,12 @@ async function processQueue(): Promise<NextResponse> {
       return NextResponse.json({ message: "Nenhuma regra ativa", processed: 0 });
     }
 
-    // 2. Get all funnel events
+    // 2. Get funnel events from the last MAX_AGE_DAYS days only
+    const maxAgeDate = new Date(Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: events, error: eventsError } = await supabaseAdmin
       .from("funnel_events")
       .select("*")
+      .gte("created_at", maxAgeDate)
       .order("created_at", { ascending: true });
 
     if (eventsError) return NextResponse.json({ error: eventsError.message }, { status: 500 });
@@ -185,6 +190,8 @@ async function processQueue(): Promise<NextResponse> {
     // 5. Process each rule
     const now = Date.now();
     const results: Array<{ rule_id: string; user: string; channel: string; status: string; error?: string }> = [];
+    let batchCount = 0;
+    let skipped = 0;
 
     for (const rule of rules as FunnelRule[]) {
       // Find users at rule.stage who haven't reached rule.next_stage
@@ -208,6 +215,12 @@ async function processQueue(): Promise<NextResponse> {
         // Check if already sent
         const key = `${rule.id}::${email}`;
         if (actionSet.has(key)) continue;
+
+        // Enforce batch size limit
+        if (batchCount >= MAX_BATCH_SIZE) {
+          skipped++;
+          continue;
+        }
 
         // Apply audience filters
         if (rule.filters) {
@@ -260,6 +273,7 @@ async function processQueue(): Promise<NextResponse> {
             metadata: { subject, content_preview: (ch === "sms" ? smsContentResolved : emailContent).substring(0, 100) },
           });
 
+          batchCount++;
           results.push({
             rule_id: rule.id,
             user: email,
@@ -274,11 +288,16 @@ async function processQueue(): Promise<NextResponse> {
       }
     }
 
+    const sentCount = results.filter((r) => r.status === "sent").length;
+    const failedCount = results.filter((r) => r.status === "failed").length;
     return NextResponse.json({
-      message: `Processado: ${results.length} ações`,
+      message: `Processado: ${sentCount} enviados, ${failedCount} falharam, ${skipped} ignorados (batch limit)`,
       processed: results.length,
-      sent: results.filter((r) => r.status === "sent").length,
-      failed: results.filter((r) => r.status === "failed").length,
+      sent: sentCount,
+      failed: failedCount,
+      skipped,
+      max_age_days: MAX_AGE_DAYS,
+      batch_limit: MAX_BATCH_SIZE,
       details: results,
     });
   } catch (error: any) {

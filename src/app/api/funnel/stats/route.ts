@@ -55,10 +55,12 @@ export async function GET() {
     }
 
     // 4. Compute pendentes per rule
-    // Fetch funnel events to find users matching each rule's trigger
+    // Fetch funnel events from the last 7 days only (mirrors process route limit)
+    const maxAgeDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: events } = await supabaseAdmin
       .from("funnel_events")
       .select("email, user_id, event, created_at, metadata")
+      .gte("created_at", maxAgeDate)
       .order("created_at", { ascending: true });
 
     // Build user stage map
