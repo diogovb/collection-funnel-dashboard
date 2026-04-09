@@ -678,24 +678,6 @@ export default function Dashboard() {
             onClick={() => openDrill("icp", "icp", "Leads ICP")}
           />
           <MetricCard
-            label="Mobile"
-            value={formatNumber(mobileCount)}
-            sub={signupJourneys.length > 0 ? `${((mobileCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
-            color="#ec4899"
-            onClick={() => openDrill("platform", "Mobile", "Mobile")}
-          />
-          <MetricCard
-            label="Desktop"
-            value={formatNumber(desktopCount)}
-            sub={signupJourneys.length > 0 ? `${((desktopCount / signupJourneys.length) * 100).toFixed(0)}% do total` : "—"}
-            color="#f59e0b"
-            onClick={() => openDrill("platform", "Desktop", "Desktop")}
-          />
-        </div>
-
-        {/* Download / Render metric cards */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-4">
-          <MetricCard
             label="Downloads"
             value={formatNumber(totalDownloads)}
             sub="usuários fizeram download"
