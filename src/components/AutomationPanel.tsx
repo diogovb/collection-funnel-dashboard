@@ -292,7 +292,7 @@ function RuleFormModal({
   onClose,
 }: {
   rule?: FunnelRule | null;
-  onSave: (data: Partial<FunnelRule>) => Promise<void>;
+  onSave: (data: Partial<FunnelRule>) => Promise<string | null>;
   onClose: () => void;
 }) {
   const initialTriggerId = rule ? getTriggerFromRule(rule) : "no_download";
@@ -317,6 +317,7 @@ function RuleFormModal({
   const [filterSoftwares, setFilterSoftwares] = useState<string[]>(Array.isArray(f?.softwares) ? f!.softwares : []);
   const [filterInterests, setFilterInterests] = useState<string[]>(Array.isArray(f?.interests) ? f!.interests : []);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showTest, setShowTest] = useState(false);
 
   const delayMinutes = delayUnit === "horas" ? delayValue * 60 : delayValue;
@@ -324,7 +325,8 @@ function RuleFormModal({
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave({
+    setSaveError(null);
+    const error = await onSave({
       ...(rule?.id ? { id: rule.id } : {}),
       stage: trigger.stage,
       next_stage: trigger.next_stage,
@@ -341,6 +343,7 @@ function RuleFormModal({
       },
       active: rule?.active ?? false,
     });
+    if (error) setSaveError(error);
     setSaving(false);
   };
 
@@ -528,6 +531,11 @@ function RuleFormModal({
           </div>
 
           {/* Footer */}
+          {saveError && (
+            <div className="mx-5 mb-1 px-4 py-2.5 bg-red-900/30 border border-red-700/50 rounded-xl text-sm text-red-400">
+              ❌ {saveError}
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row justify-between gap-3 px-5 py-4 border-t border-gray-700/60">
             <button onClick={() => setShowTest(true)} disabled={channel === "sms" ? !smsContent : !content}
               className="px-4 py-2.5 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors order-2 sm:order-1 border border-gray-600/50">
@@ -584,16 +592,21 @@ export default function AutomationPanel() {
 
   useEffect(() => { fetchRules(); fetchStats(); }, [fetchRules, fetchStats]);
 
-  const handleSave = async (data: Partial<FunnelRule>) => {
+  const handleSave = async (data: Partial<FunnelRule>): Promise<string | null> => {
     const method = data.id ? "PUT" : "POST";
-    await fetch("/api/funnel/rules", {
+    const res = await fetch("/api/funnel/rules", {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Erro desconhecido" }));
+      return err.error || "Erro ao salvar";
+    }
     setEditingRule(undefined);
     fetchRules();
     fetchStats();
+    return null;
   };
 
   const handleDelete = async (id: string) => {

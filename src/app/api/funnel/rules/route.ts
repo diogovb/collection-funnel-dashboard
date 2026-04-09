@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { stage, next_stage, delay_minutes, channel, subject, content, sms_content, content_type, dynamic_action, filters, active, priority } = body;
 
-  if (!stage || !content) {
-    return NextResponse.json({ error: "stage e content são obrigatórios" }, { status: 400 });
+  if (!stage) {
+    return NextResponse.json({ error: "stage é obrigatório" }, { status: 400 });
   }
 
   const { data, error } = await supabaseAdmin
