@@ -211,70 +211,90 @@ function VariablePills({ onInsert }: { onInsert: (v: string) => void }) {
   );
 }
 
-// ── Users List Modal ───────────────────────────────────────
-interface UserItem {
+// ── Rule Detail Modal ──────────────────────────────────────
+type DetailType = "enviadas" | "pendentes" | "falhas";
+
+interface DetailItem {
   email: string;
-  name: string | null;
-  phone: string | null;
-  date: string;
-  channel?: string;
-  status?: string;
+  name: string;
+  phone: string;
+  date?: string;
+  error?: string | null;
 }
 
-function UsersModal({
+function RuleDetailModal({
   ruleId,
   type,
-  label,
   onClose,
 }: {
   ruleId: string;
-  type: "sent" | "failed" | "pendentes";
-  label: string;
+  type: DetailType;
   onClose: () => void;
 }) {
-  const [users, setUsers] = useState<UserItem[]>([]);
+  const [items, setItems] = useState<DetailItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/funnel/rule-users?rule_id=${ruleId}&type=${type}`)
+    fetch(`/api/funnel/actions?rule_id=${encodeURIComponent(ruleId)}&type=${type}`)
       .then((r) => r.json())
-      .then((data) => { setUsers(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then((data) => {
+        if (Array.isArray(data)) setItems(data);
+        else setFetchError(data.error || "Erro ao carregar");
+        setLoading(false);
+      })
+      .catch(() => { setFetchError("Erro ao carregar"); setLoading(false); });
   }, [ruleId, type]);
+
+  const titles: Record<DetailType, string> = {
+    enviadas: "✅ Enviadas",
+    pendentes: "⏳ Pendentes",
+    falhas: "❌ Falhas",
+  };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-      <div className="bg-[#111827] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col border border-gray-700/60 shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-700/60">
-          <h3 className="text-base font-semibold text-white">{label}</h3>
+      <div className="bg-[#111827] rounded-2xl w-full max-w-lg border border-gray-700/60 shadow-2xl flex flex-col max-h-[80vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700/60 flex-shrink-0">
+          <h3 className="text-base font-semibold text-white">{titles[type]}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors">✕</button>
         </div>
-        <div className="overflow-y-auto flex-1 p-4 space-y-2">
-          {loading ? (
-            <p className="text-center text-gray-500 text-sm py-6 animate-pulse">Carregando...</p>
-          ) : users.length === 0 ? (
-            <p className="text-center text-gray-500 text-sm py-6">Nenhum usuário</p>
-          ) : (
-            users.map((u, i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-gray-800/40 rounded-xl">
-                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-300 flex-shrink-0 uppercase">
-                  {(u.name || u.email).charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  {u.name && <p className="text-sm font-medium text-white truncate">{u.name}</p>}
-                  <p className={`truncate ${u.name ? "text-xs text-gray-500" : "text-sm font-medium text-white"}`}>{u.email}</p>
-                  {u.phone && <p className="text-xs text-gray-500">{u.phone}</p>}
-                </div>
-                <div className="text-right flex-shrink-0 space-y-0.5">
-                  {u.channel && <p className="text-xs">{u.channel === "email" ? "📧" : "📱"}</p>}
-                  <p className="text-xs text-gray-500">{formatDate(u.date)}</p>
-                </div>
-              </div>
-            ))
+        <div className="overflow-y-auto flex-1">
+          {loading && (
+            <div className="flex items-center justify-center py-10 text-gray-500 text-sm animate-pulse">
+              Carregando...
+            </div>
+          )}
+          {fetchError && (
+            <div className="px-5 py-4 text-sm text-red-400">{fetchError}</div>
+          )}
+          {!loading && !fetchError && items.length === 0 && (
+            <div className="px-5 py-10 text-center text-sm text-gray-500">Nenhum registro encontrado.</div>
+          )}
+          {!loading && !fetchError && items.length > 0 && (
+            <ul className="divide-y divide-gray-700/40">
+              {items.map((item, i) => (
+                <li key={i} className="px-5 py-3 flex flex-col gap-0.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-white truncate">{item.name}</span>
+                    {item.date && (
+                      <span className="text-[11px] text-gray-500 flex-shrink-0">{formatDate(item.date)}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400">{item.email}</span>
+                  {item.phone && (
+                    <span className="text-xs text-gray-500">{item.phone}</span>
+                  )}
+                  {item.error && (
+                    <span className="text-xs text-red-400 mt-0.5 break-all">{item.error}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-700/60">
-          <span className="text-xs text-gray-500">{loading ? "—" : `${users.length} usuário${users.length !== 1 ? "s" : ""}`}</span>
+        <div className="flex justify-between items-center px-5 py-3 border-t border-gray-700/60 flex-shrink-0">
+          <span className="text-xs text-gray-500">{items.length} {items.length === 1 ? "registro" : "registros"}</span>
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Fechar</button>
         </div>
       </div>
@@ -643,7 +663,7 @@ export default function AutomationPanel() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [usersModal, setUsersModal] = useState<{ ruleId: string; type: "sent" | "failed" | "pendentes"; label: string } | null>(null);
+  const [detailModal, setDetailModal] = useState<{ ruleId: string; type: DetailType } | null>(null);
 
   const fetchRules = useCallback(async () => {
     try {
@@ -864,7 +884,7 @@ export default function AutomationPanel() {
                 {/* Stats row */}
                 <div className="flex items-center gap-0 border-t border-gray-700/30 divide-x divide-gray-700/30">
                   <button
-                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "sent", label: `${trigger.label} — Enviadas` })}
+                    onClick={() => !statsLoading && setDetailModal({ ruleId: rule.id, type: "enviadas" })}
                     className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors rounded-bl-2xl"
                   >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Enviadas</p>
@@ -873,7 +893,7 @@ export default function AutomationPanel() {
                     </p>
                   </button>
                   <button
-                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "pendentes", label: `${trigger.label} — Pendentes` })}
+                    onClick={() => !statsLoading && setDetailModal({ ruleId: rule.id, type: "pendentes" })}
                     className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors"
                   >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Pendentes</p>
@@ -882,7 +902,7 @@ export default function AutomationPanel() {
                     </p>
                   </button>
                   <button
-                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "failed", label: `${trigger.label} — Falhas` })}
+                    onClick={() => !statsLoading && setDetailModal({ ruleId: rule.id, type: "falhas" })}
                     className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors"
                   >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Falhas</p>
@@ -912,13 +932,12 @@ export default function AutomationPanel() {
         />
       )}
 
-      {/* Users list modal */}
-      {usersModal && (
-        <UsersModal
-          ruleId={usersModal.ruleId}
-          type={usersModal.type}
-          label={usersModal.label}
-          onClose={() => setUsersModal(null)}
+      {/* Rule detail modal */}
+      {detailModal && (
+        <RuleDetailModal
+          ruleId={detailModal.ruleId}
+          type={detailModal.type}
+          onClose={() => setDetailModal(null)}
         />
       )}
     </div>

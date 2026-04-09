@@ -111,10 +111,9 @@ async function sendSMS(phone: string, message: string): Promise<{ success: boole
 function isAuthorized(request: Request): boolean {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
-  // If no Authorization header, allow (manual/dashboard calls)
-  if (!authHeader) return true;
-  // If Authorization header present, validate against CRON_SECRET
-  if (!cronSecret) return false;
+  // If no CRON_SECRET configured, allow all calls
+  if (!cronSecret) return true;
+  // If CRON_SECRET is set, require matching Bearer token
   return authHeader === `Bearer ${cronSecret}`;
 }
 
