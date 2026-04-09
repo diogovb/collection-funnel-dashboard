@@ -99,7 +99,17 @@ async function sendSMS(phone: string, message: string): Promise<{ success: boole
   }
 }
 
-export async function POST() {
+function isAuthorized(request: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  // If no Authorization header, allow (manual/dashboard calls)
+  if (!authHeader) return true;
+  // If Authorization header present, validate against CRON_SECRET
+  if (!cronSecret) return false;
+  return authHeader === `Bearer ${cronSecret}`;
+}
+
+async function processQueue(): Promise<NextResponse> {
   try {
     // 1. Get all active rules
     const { data: rules, error: rulesError } = await supabaseAdmin
@@ -246,4 +256,18 @@ export async function POST() {
     console.error("Erro ao processar funil:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+export async function GET(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return processQueue();
+}
+
+export async function POST(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return processQueue();
 }
