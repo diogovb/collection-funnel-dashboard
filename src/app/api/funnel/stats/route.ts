@@ -55,10 +55,16 @@ export async function GET() {
     }
 
     // 4. Compute pendentes per rule
-    // Fetch all funnel events — per-rule cutoff (rule.created_at) is applied below
+    // Filter server-side: only events after the earliest active rule's created_at
+    const activeRules = (rules || []).filter((r) => r.active);
+    const earliestRuleDate = activeRules.length > 0
+      ? activeRules.reduce((min, r) => (r.created_at < min ? r.created_at : min), activeRules[0].created_at)
+      : new Date().toISOString();
     const { data: events } = await supabaseAdmin
       .from("funnel_events")
       .select("email, user_id, event, created_at, metadata")
+      .gte("created_at", earliestRuleDate)
+      .in("event", ["signup_completed", "download", "render_ia"])
       .order("created_at", { ascending: true });
 
     // Build user stage map

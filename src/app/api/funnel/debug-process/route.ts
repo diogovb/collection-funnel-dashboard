@@ -77,16 +77,33 @@ export async function GET(request: NextRequest) {
   }
 
   // ── 2. Fetch funnel_events (check row count) ───────────────
-  // First, get total count
+  // Find earliest rule created_at to use as server-side filter
+  const earliestRuleDate = (rules as FunnelRule[]).reduce(
+    (min, r) => (r.created_at < min ? r.created_at : min),
+    (rules as FunnelRule[])[0].created_at
+  );
+  report.earliest_rule_created_at = earliestRuleDate;
+
+  // Total count across all event types (for reference)
   const { count: totalEventsCount } = await supabaseAdmin
     .from("funnel_events")
     .select("*", { count: "exact", head: true });
 
+  // Count after date filter (to show how many we'd miss without the filter)
+  const { count: filteredEventsCount } = await supabaseAdmin
+    .from("funnel_events")
+    .select("*", { count: "exact", head: true })
+    .gte("created_at", earliestRuleDate)
+    .in("event", ["signup_completed", "download", "render_ia"]);
+
   report.total_events_in_table = totalEventsCount;
+  report.relevant_events_after_filter = filteredEventsCount;
 
   const { data: events, error: eventsError } = await supabaseAdmin
     .from("funnel_events")
     .select("*")
+    .gte("created_at", earliestRuleDate)
+    .in("event", ["signup_completed", "download", "render_ia"])
     .order("created_at", { ascending: true });
 
   if (eventsError) {
@@ -95,7 +112,7 @@ export async function GET(request: NextRequest) {
   }
 
   report.events_fetched = events?.length ?? 0;
-  report.supabase_row_limit_hit = (events?.length ?? 0) < (totalEventsCount ?? 0);
+  report.supabase_row_limit_hit = (events?.length ?? 0) < (filteredEventsCount ?? 0);
 
   // Count by event type
   const eventTypeCounts: Record<string, number> = {};

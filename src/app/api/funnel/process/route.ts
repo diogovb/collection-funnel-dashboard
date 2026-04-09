@@ -133,10 +133,16 @@ async function processQueue(): Promise<NextResponse> {
       return NextResponse.json({ message: "Nenhuma regra ativa", processed: 0 });
     }
 
-    // 2. Get funnel events — no global age cutoff; each rule uses its own created_at as cutoff
+    // 2. Get funnel events — filter server-side to only relevant events after earliest rule
+    const earliestRuleDate = (rules as FunnelRule[]).reduce(
+      (min, r) => (r.created_at < min ? r.created_at : min),
+      (rules as FunnelRule[])[0].created_at
+    );
     const { data: events, error: eventsError } = await supabaseAdmin
       .from("funnel_events")
       .select("*")
+      .gte("created_at", earliestRuleDate)
+      .in("event", ["signup_completed", "download", "render_ia"])
       .order("created_at", { ascending: true });
 
     if (eventsError) return NextResponse.json({ error: eventsError.message }, { status: 500 });
