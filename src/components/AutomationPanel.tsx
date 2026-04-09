@@ -18,6 +18,19 @@ interface FunnelRule {
   priority: number;
 }
 
+interface RuleStats {
+  sent: number;
+  failed: number;
+  today: number;
+  lastSent: string | null;
+  pendentes: number;
+}
+
+interface StatsResponse {
+  byRule: Record<string, RuleStats>;
+  totals: { sent: number; failed: number; today: number };
+}
+
 interface FunnelAction {
   id: string;
   rule_id: string;
@@ -416,6 +429,8 @@ export default function AutomationPanel() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const fetchRules = useCallback(async () => {
     try {
@@ -425,7 +440,16 @@ export default function AutomationPanel() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchRules(); }, [fetchRules]);
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const res = await fetch("/api/funnel/stats");
+      if (res.ok) setStats(await res.json());
+    } catch { /* ignore */ }
+    setStatsLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRules(); fetchStats(); }, [fetchRules, fetchStats]);
 
   const handleSave = async (data: Partial<FunnelRule>) => {
     const method = data.id ? "PUT" : "POST";
@@ -436,6 +460,7 @@ export default function AutomationPanel() {
     });
     setEditingRule(undefined);
     fetchRules();
+    fetchStats();
   };
 
   const handleDelete = async (id: string) => {
@@ -446,6 +471,7 @@ export default function AutomationPanel() {
       body: JSON.stringify({ id }),
     });
     fetchRules();
+    fetchStats();
   };
 
   const handleToggle = async (rule: FunnelRule) => {
@@ -455,6 +481,7 @@ export default function AutomationPanel() {
       body: JSON.stringify({ id: rule.id, active: !rule.active }),
     });
     fetchRules();
+    fetchStats();
   };
 
   const handleProcess = async () => {
@@ -468,6 +495,7 @@ export default function AutomationPanel() {
       setLastResult("❌ Erro ao processar");
     }
     setProcessing(false);
+    fetchStats();
   };
 
   const activeCount = rules.filter((r) => r.active).length;
@@ -477,6 +505,8 @@ export default function AutomationPanel() {
       <span className="animate-pulse">Carregando automações...</span>
     </div>
   );
+
+  const totals = stats?.totals;
 
   return (
     <div className="space-y-5">
@@ -513,6 +543,30 @@ export default function AutomationPanel() {
         </div>
       </div>
 
+      {/* Summary cards */}
+      {(totals || statsLoading) && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-gray-800/30 border border-gray-700/40 rounded-xl px-4 py-3">
+            <p className="text-xs text-gray-500 mb-1">Total enviados</p>
+            <p className="text-2xl font-bold text-white">
+              {statsLoading ? <span className="text-gray-600 text-base animate-pulse">—</span> : (totals?.sent ?? 0)}
+            </p>
+          </div>
+          <div className="bg-gray-800/30 border border-gray-700/40 rounded-xl px-4 py-3">
+            <p className="text-xs text-gray-500 mb-1">Enviados hoje</p>
+            <p className="text-2xl font-bold text-indigo-400">
+              {statsLoading ? <span className="text-gray-600 text-base animate-pulse">—</span> : (totals?.today ?? 0)}
+            </p>
+          </div>
+          <div className="bg-gray-800/30 border border-gray-700/40 rounded-xl px-4 py-3">
+            <p className="text-xs text-gray-500 mb-1">Falhas</p>
+            <p className="text-2xl font-bold text-red-400/80">
+              {statsLoading ? <span className="text-gray-600 text-base animate-pulse">—</span> : (totals?.failed ?? 0)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {lastResult && (
         <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm">
           {lastResult}
@@ -541,6 +595,7 @@ export default function AutomationPanel() {
             const delayLabel = delayHours
               ? `${rule.delay_minutes / 60}h`
               : `${rule.delay_minutes}min`;
+            const ruleStats = stats?.byRule[rule.id];
 
             return (
               <div
@@ -551,7 +606,8 @@ export default function AutomationPanel() {
                     : "bg-gray-800/15 border-gray-700/40"
                 }`}
               >
-                <div className="flex items-center gap-3 px-4 py-3.5">
+                {/* Top row: toggle + info + actions */}
+                <div className="flex items-center gap-3 px-4 pt-3.5 pb-3">
                   {/* Toggle */}
                   <button
                     onClick={() => handleToggle(rule)}
@@ -599,6 +655,34 @@ export default function AutomationPanel() {
                     >
                       🗑️
                     </button>
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div className="flex items-center gap-0 border-t border-gray-700/30 divide-x divide-gray-700/30">
+                  <div className="flex-1 px-4 py-2.5 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Enviadas</p>
+                    <p className={`text-sm font-semibold ${ruleStats?.sent ? "text-green-400" : "text-gray-500"}`}>
+                      {statsLoading ? "—" : (ruleStats?.sent ?? 0)}
+                    </p>
+                  </div>
+                  <div className="flex-1 px-4 py-2.5 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Pendentes</p>
+                    <p className={`text-sm font-semibold ${ruleStats?.pendentes ? "text-amber-400" : "text-gray-500"}`}>
+                      {statsLoading ? "—" : (ruleStats?.pendentes ?? 0)}
+                    </p>
+                  </div>
+                  <div className="flex-1 px-4 py-2.5 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Falhas</p>
+                    <p className={`text-sm font-semibold ${ruleStats?.failed ? "text-red-400" : "text-gray-500"}`}>
+                      {statsLoading ? "—" : (ruleStats?.failed ?? 0)}
+                    </p>
+                  </div>
+                  <div className="flex-1 px-4 py-2.5 text-center">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Última exec.</p>
+                    <p className="text-[11px] font-medium text-gray-400">
+                      {statsLoading ? "—" : ruleStats?.lastSent ? formatDate(ruleStats.lastSent) : <span className="text-gray-600">nunca</span>}
+                    </p>
                   </div>
                 </div>
               </div>

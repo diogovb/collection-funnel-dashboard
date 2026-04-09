@@ -38,10 +38,16 @@ function replaceVars(template: string, metadata: Record<string, any> | null, ema
   let result = template;
   const rawName = metadata?.name || email.split("@")[0];
   const name = formatFirstName(rawName);
-  const phone = metadata?.phone || "";
+  const phone = metadata?.phone || metadata?.whatsapp || "";
+  const profession = metadata?.profession || "";
+  const software = metadata?.software || "";
+  const interest = metadata?.what_brought || "";
   result = result.replace(/\{\{name\}\}/g, name);
   result = result.replace(/\{\{email\}\}/g, email);
   result = result.replace(/\{\{phone\}\}/g, phone);
+  result = result.replace(/\{\{profession\}\}/g, profession);
+  result = result.replace(/\{\{software\}\}/g, software);
+  result = result.replace(/\{\{interest\}\}/g, interest);
   return result;
 }
 
@@ -169,7 +175,12 @@ export async function POST() {
         if (!user.stages.has(rule.stage)) continue;
 
         // Must NOT have the next stage (if specified)
-        if (rule.next_stage && user.stages.has(rule.next_stage)) continue;
+        // "any_action" is a virtual stage: user must have neither download nor render_ia
+        if (rule.next_stage === "any_action") {
+          if (user.stages.has("download") || user.stages.has("render_ia")) continue;
+        } else if (rule.next_stage && user.stages.has(rule.next_stage)) {
+          continue;
+        }
 
         // Check delay
         const stageTime = new Date(user.stageTimestamps[rule.stage]).getTime();
