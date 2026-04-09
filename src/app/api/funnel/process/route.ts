@@ -23,6 +23,7 @@ interface FunnelRule {
   channel: string;
   subject: string | null;
   content: string;
+  sms_content: string | null;
   content_type: string;
   dynamic_action: string | null;
   active: boolean;
@@ -202,9 +203,12 @@ async function processQueue(): Promise<NextResponse> {
         if (actionSet.has(key)) continue;
 
         // Prepare content
-        const content = replaceVars(rule.content, user.metadata, email);
+        const emailContent = replaceVars(rule.content, user.metadata, email);
+        // Use dedicated sms_content when channel is "both", fallback to content (for "sms" channel)
+        const rawSmsContent = (rule.channel === "both" && rule.sms_content) ? rule.sms_content : rule.content;
+        const smsContentResolved = replaceVars(rawSmsContent, user.metadata, email);
         const subject = rule.subject ? replaceVars(rule.subject, user.metadata, email) : undefined;
-        const phone = user.metadata?.phone || "";
+        const phone = user.metadata?.phone || user.metadata?.whatsapp || "";
 
         // Send based on channel
         const channels = rule.channel === "both" ? ["email", "sms"] : [rule.channel];
@@ -213,10 +217,10 @@ async function processQueue(): Promise<NextResponse> {
           let result: { success: boolean; error?: string };
 
           if (ch === "email") {
-            result = await sendEmail(email, subject || "Collection", wrapEmailHTML(content));
+            result = await sendEmail(email, subject || "Collection", wrapEmailHTML(emailContent));
           } else {
-            // SMS: strip HTML
-            const smsText = content.replace(/<[^>]*>/g, "").substring(0, 160);
+            // SMS: strip HTML tags (in case email content was used as fallback)
+            const smsText = smsContentResolved.replace(/<[^>]*>/g, "").substring(0, 160);
             result = await sendSMS(phone, smsText);
           }
 
@@ -228,7 +232,7 @@ async function processQueue(): Promise<NextResponse> {
             channel: ch,
             status: result.success ? "sent" : "failed",
             error: result.error || null,
-            metadata: { subject, content_preview: content.substring(0, 100) },
+            metadata: { subject, content_preview: (ch === "sms" ? smsContentResolved : emailContent).substring(0, 100) },
           });
 
           results.push({

@@ -10,6 +10,7 @@ interface FunnelRule {
   channel: string;
   subject: string | null;
   content: string;
+  sms_content: string | null;
   content_type: string;
   dynamic_action: string | null;
   active: boolean;
@@ -134,16 +135,40 @@ function wrapEmailHTML(content: string, subject: string): string {
 </td></tr></table></body></html>`;
 }
 
+// ── Variable Pills ─────────────────────────────────────────
+function VariablePills({ onInsert }: { onInsert: (v: string) => void }) {
+  return (
+    <div className="mt-3 bg-gray-800/30 rounded-xl p-3 border border-gray-700/40">
+      <p className="text-xs text-gray-500 mb-2 font-medium">Variáveis disponíveis:</p>
+      <div className="flex flex-wrap gap-1.5">
+        {VARIABLES.map((v) => (
+          <button
+            key={v.name}
+            onClick={() => onInsert(v.name)}
+            title={v.desc}
+            className="inline-flex items-center gap-1 px-2 py-1 bg-gray-700/60 hover:bg-indigo-600/40 border border-gray-600/50 hover:border-indigo-500/50 rounded-md text-xs font-mono text-gray-300 hover:text-indigo-300 transition-all"
+          >
+            {v.name}
+            <span className="text-gray-500 font-sans text-[10px]">— {v.desc}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Test Modal ─────────────────────────────────────────────
 function TestModal({
   channel,
   subject,
   content,
+  smsContent,
   onClose,
 }: {
   channel: string;
   subject: string;
   content: string;
+  smsContent: string;
   onClose: () => void;
 }) {
   const [testEmail, setTestEmail] = useState("");
@@ -158,7 +183,7 @@ function TestModal({
       const res = await fetch("/api/funnel/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, email: testEmail, phone: testPhone, subject, content }),
+        body: JSON.stringify({ channel, email: testEmail, phone: testPhone, subject, content, sms_content: smsContent }),
       });
       const data = await res.json();
       setResult(data.success ? "✅ Enviado com sucesso!" : `❌ ${data.error || "Erro"}`);
@@ -227,6 +252,7 @@ function RuleFormModal({
   const [channel, setChannel] = useState(rule?.channel || "email");
   const [subject, setSubject] = useState(rule?.subject || "");
   const [content, setContent] = useState(rule?.content || "");
+  const [smsContent, setSmsContent] = useState(rule?.sms_content || "");
   const [saving, setSaving] = useState(false);
   const [showTest, setShowTest] = useState(false);
 
@@ -242,15 +268,20 @@ function RuleFormModal({
       delay_minutes: delayMinutes,
       channel,
       subject: channel !== "sms" ? subject : null,
-      content,
+      content: channel === "sms" ? smsContent : content,
+      sms_content: channel === "both" ? smsContent : null,
       content_type: "custom",
       active: rule?.active ?? false,
     });
     setSaving(false);
   };
 
-  const insertVariable = (varName: string) => {
+  const insertEmailVariable = (varName: string) => {
     setContent(prev => prev + varName);
+  };
+
+  const insertSmsVariable = (varName: string) => {
+    setSmsContent(prev => prev + varName);
   };
 
   return (
@@ -345,68 +376,68 @@ function RuleFormModal({
               </div>
             </div>
 
-            {/* Subject */}
-            {channel !== "sms" && (
-              <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Assunto do email</label>
-                <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Ex: {{name}}, seu acervo te espera 👋"
-                  className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-colors" />
+            {/* Email fields */}
+            {(channel === "email" || channel === "both") && (
+              <div className="space-y-4">
+                {channel === "both" && (
+                  <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">📧 Email</p>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Assunto do email</label>
+                  <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Ex: {{name}}, seu acervo te espera 👋"
+                    className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Conteúdo do email</label>
+                  <textarea
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={6}
+                    placeholder="<h2>Oi {{name}}!</h2>&#10;<p>Você se cadastrou no Collection mas ainda não explorou o acervo...</p>"
+                    className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+                  />
+                  <VariablePills onInsert={insertEmailVariable} />
+                </div>
               </div>
             )}
 
-            {/* Content */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  {channel === "sms" ? "Mensagem SMS" : "Conteúdo do email"}
-                </label>
-                {channel === "sms" && (
-                  <span className={`text-xs font-mono ${content.length > 140 ? "text-amber-400" : "text-gray-500"}`}>
-                    {content.length}/160
-                  </span>
+            {/* SMS field */}
+            {(channel === "sms" || channel === "both") && (
+              <div>
+                {channel === "both" && (
+                  <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 mb-4">📱 SMS</p>
                 )}
-              </div>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={channel === "sms" ? 4 : 7}
-                maxLength={channel === "sms" ? 160 : undefined}
-                placeholder={channel === "sms"
-                  ? "Oi {{name}}! Sua conta Collection está pronta. Baixe seu primeiro produto agora: https://app.collection.com.br"
-                  : "<h2>Oi {{name}}!</h2>\n<p>Você se cadastrou no Collection mas ainda não explorou o acervo...</p>"}
-                className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
-              />
-
-              {/* Variables */}
-              <div className="mt-3 bg-gray-800/30 rounded-xl p-3 border border-gray-700/40">
-                <p className="text-xs text-gray-500 mb-2 font-medium">Variáveis disponíveis:</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {VARIABLES.map((v) => (
-                    <button
-                      key={v.name}
-                      onClick={() => insertVariable(v.name)}
-                      title={v.desc}
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-gray-700/60 hover:bg-indigo-600/40 border border-gray-600/50 hover:border-indigo-500/50 rounded-md text-xs font-mono text-gray-300 hover:text-indigo-300 transition-all"
-                    >
-                      {v.name}
-                      <span className="text-gray-500 font-sans text-[10px]">— {v.desc}</span>
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    {channel === "sms" ? "Mensagem SMS" : "Conteúdo do SMS"}
+                  </label>
+                  <span className={`text-xs font-mono ${smsContent.length > 140 ? "text-amber-400" : "text-gray-500"}`}>
+                    {smsContent.length}/160
+                  </span>
                 </div>
+                <textarea
+                  value={smsContent}
+                  onChange={(e) => setSmsContent(e.target.value)}
+                  rows={4}
+                  maxLength={160}
+                  placeholder="Oi {{name}}! Sua conta Collection está pronta. Baixe seu primeiro produto agora: https://app.collection.com.br"
+                  className="w-full bg-gray-800/60 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+                />
+                <VariablePills onInsert={insertSmsVariable} />
               </div>
-            </div>
+            )}
           </div>
 
           {/* Footer */}
           <div className="flex flex-col sm:flex-row justify-between gap-3 px-5 py-4 border-t border-gray-700/60">
-            <button onClick={() => setShowTest(true)} disabled={!content}
+            <button onClick={() => setShowTest(true)} disabled={channel === "sms" ? !smsContent : !content}
               className="px-4 py-2.5 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors order-2 sm:order-1 border border-gray-600/50">
               🧪 Testar envio
             </button>
             <div className="flex gap-3 order-1 sm:order-2">
               <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors">Cancelar</button>
-              <button onClick={handleSave} disabled={saving || !content}
+              <button onClick={handleSave} disabled={saving || (channel === "sms" ? !smsContent : !content) || (channel === "both" && !smsContent)}
                 className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors">
                 {saving ? "Salvando..." : "Salvar regra"}
               </button>
@@ -416,7 +447,13 @@ function RuleFormModal({
       </div>
 
       {showTest && (
-        <TestModal channel={channel} subject={subject} content={content} onClose={() => setShowTest(false)} />
+        <TestModal
+          channel={channel}
+          subject={subject}
+          content={channel === "sms" ? smsContent : content}
+          smsContent={smsContent}
+          onClose={() => setShowTest(false)}
+        />
       )}
     </>
   );

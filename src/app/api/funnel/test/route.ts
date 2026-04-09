@@ -16,19 +16,26 @@ function formatPhone(phone: string): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const { channel, email, phone, subject, content } = await request.json();
+    const { channel, email, phone, subject, content, sms_content } = await request.json();
 
-    // Replace test variables
-    const testContent = content
+    const replaceTestVars = (tmpl: string) => tmpl
       .replace(/\{\{name\}\}/g, "Teste")
       .replace(/\{\{email\}\}/g, email || "teste@email.com")
-      .replace(/\{\{phone\}\}/g, phone || "");
+      .replace(/\{\{phone\}\}/g, phone || "")
+      .replace(/\{\{profession\}\}/g, "Arquiteto(a)")
+      .replace(/\{\{software\}\}/g, "SketchUp")
+      .replace(/\{\{interest\}\}/g, "Inspiração");
+
+    const testEmailContent = replaceTestVars(content || "");
+    // Use dedicated sms_content for "both" channel, fallback to content for "sms"
+    const rawSms = (channel === "both" && sms_content) ? sms_content : content;
+    const testSmsContent = replaceTestVars(rawSms || "");
 
     const results: Array<{ channel: string; success: boolean; error?: string }> = [];
 
     // Send test email
     if ((channel === "email" || channel === "both") && email) {
-      const html = wrapEmailHTML(testContent);
+      const html = wrapEmailHTML(testEmailContent);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -56,7 +63,7 @@ export async function POST(request: NextRequest) {
       if (!formatted) {
         results.push({ channel: "sms", success: false, error: "Telefone inválido" });
       } else {
-        const smsText = testContent.replace(/<[^>]*>/g, "").substring(0, 160);
+        const smsText = testSmsContent.replace(/<[^>]*>/g, "").substring(0, 160);
         const params = new URLSearchParams({
           key: SMSDEV_API_KEY,
           type: "9",
