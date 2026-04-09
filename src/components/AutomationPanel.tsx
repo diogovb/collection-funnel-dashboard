@@ -220,6 +220,7 @@ interface DetailItem {
   phone: string;
   date?: string;
   error?: string | null;
+  channels?: string[];
 }
 
 function RuleDetailModal({
@@ -277,9 +278,14 @@ function RuleDetailModal({
                 <li key={i} className="px-5 py-3 flex flex-col gap-0.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium text-white truncate">{item.name}</span>
-                    {item.date && (
-                      <span className="text-[11px] text-gray-500 flex-shrink-0">{formatDate(item.date)}</span>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {item.channels && item.channels.map((ch) => (
+                        <span key={ch} className="text-xs">{ch === "email" ? "📧" : "📱"}</span>
+                      ))}
+                      {item.date && (
+                        <span className="text-[11px] text-gray-500">{formatDate(item.date)}</span>
+                      )}
+                    </div>
                   </div>
                   <span className="text-xs text-gray-400">{item.email}</span>
                   {item.phone && (

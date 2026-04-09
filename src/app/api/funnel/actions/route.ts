@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
       supabaseAdmin
         .from("funnel_events")
         .select("email, user_id, event, created_at, metadata")
+        .gte("created_at", rule.created_at)
+        .in("event", ["signup_completed", "download", "render_ia"])
         .order("created_at", { ascending: true }),
       supabaseAdmin
         .from("funnel_actions")
@@ -145,12 +147,30 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const result = (actions || []).map((a) => ({
-    email: a.user_email,
-    name: metaMap[a.user_email]?.name || a.user_email.split("@")[0],
-    phone: metaMap[a.user_email]?.phone || "",
-    date: a.created_at,
-    error: a.error,
+  // Deduplicate by email: merge channels, use latest date
+  const byEmail: Record<string, { email: string; name: string; phone: string; channels: Set<string>; date: string; error: string | null }> = {};
+  for (const a of actions || []) {
+    if (!byEmail[a.user_email]) {
+      byEmail[a.user_email] = {
+        email: a.user_email,
+        name: metaMap[a.user_email]?.name || a.user_email.split("@")[0],
+        phone: metaMap[a.user_email]?.phone || "",
+        channels: new Set(),
+        date: a.created_at,
+        error: a.error,
+      };
+    }
+    byEmail[a.user_email].channels.add(a.channel ?? "email");
+    if (a.created_at > byEmail[a.user_email].date) byEmail[a.user_email].date = a.created_at;
+  }
+
+  const result = Object.values(byEmail).map((u) => ({
+    email: u.email,
+    name: u.name,
+    phone: u.phone,
+    channels: [...u.channels],
+    date: u.date,
+    error: u.error,
   }));
 
   return NextResponse.json(result);
