@@ -211,6 +211,77 @@ function VariablePills({ onInsert }: { onInsert: (v: string) => void }) {
   );
 }
 
+// ── Users List Modal ───────────────────────────────────────
+interface UserItem {
+  email: string;
+  name: string | null;
+  phone: string | null;
+  date: string;
+  channel?: string;
+  status?: string;
+}
+
+function UsersModal({
+  ruleId,
+  type,
+  label,
+  onClose,
+}: {
+  ruleId: string;
+  type: "sent" | "failed" | "pendentes";
+  label: string;
+  onClose: () => void;
+}) {
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/funnel/rule-users?rule_id=${ruleId}&type=${type}`)
+      .then((r) => r.json())
+      .then((data) => { setUsers(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [ruleId, type]);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+      <div className="bg-[#111827] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col border border-gray-700/60 shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-gray-700/60">
+          <h3 className="text-base font-semibold text-white">{label}</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors">✕</button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-4 space-y-2">
+          {loading ? (
+            <p className="text-center text-gray-500 text-sm py-6 animate-pulse">Carregando...</p>
+          ) : users.length === 0 ? (
+            <p className="text-center text-gray-500 text-sm py-6">Nenhum usuário</p>
+          ) : (
+            users.map((u, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-gray-800/40 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-300 flex-shrink-0 uppercase">
+                  {(u.name || u.email).charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {u.name && <p className="text-sm font-medium text-white truncate">{u.name}</p>}
+                  <p className={`truncate ${u.name ? "text-xs text-gray-500" : "text-sm font-medium text-white"}`}>{u.email}</p>
+                  {u.phone && <p className="text-xs text-gray-500">{u.phone}</p>}
+                </div>
+                <div className="text-right flex-shrink-0 space-y-0.5">
+                  {u.channel && <p className="text-xs">{u.channel === "email" ? "📧" : "📱"}</p>}
+                  <p className="text-xs text-gray-500">{formatDate(u.date)}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-700/60">
+          <span className="text-xs text-gray-500">{loading ? "—" : `${users.length} usuário${users.length !== 1 ? "s" : ""}`}</span>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Test Modal ─────────────────────────────────────────────
 function TestModal({
   channel,
@@ -572,6 +643,7 @@ export default function AutomationPanel() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [usersModal, setUsersModal] = useState<{ ruleId: string; type: "sent" | "failed" | "pendentes"; label: string } | null>(null);
 
   const fetchRules = useCallback(async () => {
     try {
@@ -791,24 +863,33 @@ export default function AutomationPanel() {
 
                 {/* Stats row */}
                 <div className="flex items-center gap-0 border-t border-gray-700/30 divide-x divide-gray-700/30">
-                  <div className="flex-1 px-4 py-2.5 text-center">
+                  <button
+                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "sent", label: `${trigger.label} — Enviadas` })}
+                    className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors rounded-bl-2xl"
+                  >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Enviadas</p>
                     <p className={`text-sm font-semibold ${ruleStats?.sent ? "text-green-400" : "text-gray-500"}`}>
                       {statsLoading ? "—" : (ruleStats?.sent ?? 0)}
                     </p>
-                  </div>
-                  <div className="flex-1 px-4 py-2.5 text-center">
+                  </button>
+                  <button
+                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "pendentes", label: `${trigger.label} — Pendentes` })}
+                    className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors"
+                  >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Pendentes</p>
                     <p className={`text-sm font-semibold ${ruleStats?.pendentes ? "text-amber-400" : "text-gray-500"}`}>
                       {statsLoading ? "—" : (ruleStats?.pendentes ?? 0)}
                     </p>
-                  </div>
-                  <div className="flex-1 px-4 py-2.5 text-center">
+                  </button>
+                  <button
+                    onClick={() => !statsLoading && setUsersModal({ ruleId: rule.id, type: "failed", label: `${trigger.label} — Falhas` })}
+                    className="flex-1 px-4 py-2.5 text-center hover:bg-gray-700/20 transition-colors"
+                  >
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Falhas</p>
                     <p className={`text-sm font-semibold ${ruleStats?.failed ? "text-red-400" : "text-gray-500"}`}>
                       {statsLoading ? "—" : (ruleStats?.failed ?? 0)}
                     </p>
-                  </div>
+                  </button>
                   <div className="flex-1 px-4 py-2.5 text-center">
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Última exec.</p>
                     <p className="text-[11px] font-medium text-gray-400">
@@ -828,6 +909,16 @@ export default function AutomationPanel() {
           rule={editingRule}
           onSave={handleSave}
           onClose={() => setEditingRule(undefined)}
+        />
+      )}
+
+      {/* Users list modal */}
+      {usersModal && (
+        <UsersModal
+          ruleId={usersModal.ruleId}
+          type={usersModal.type}
+          label={usersModal.label}
+          onClose={() => setUsersModal(null)}
         />
       )}
     </div>
