@@ -556,8 +556,6 @@ export default function AutomationPanel() {
   const [rules, setRules] = useState<FunnelRule[]>([]);
   const [editingRule, setEditingRule] = useState<FunnelRule | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [lastResult, setLastResult] = useState<string | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
@@ -613,20 +611,6 @@ export default function AutomationPanel() {
     fetchStats();
   };
 
-  const handleProcess = async () => {
-    setProcessing(true);
-    setLastResult(null);
-    try {
-      const res = await fetch("/api/funnel/process", { method: "POST" });
-      const data = await res.json();
-      setLastResult(`✅ ${data.sent || 0} enviados, ${data.failed || 0} falharam`);
-    } catch {
-      setLastResult("❌ Erro ao processar");
-    }
-    setProcessing(false);
-    fetchStats();
-  };
-
   const activeCount = rules.filter((r) => r.active).length;
 
   if (loading) return (
@@ -652,17 +636,6 @@ export default function AutomationPanel() {
           )}
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button
-            onClick={handleProcess}
-            disabled={processing}
-            className="flex-1 sm:flex-none px-3 py-2 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-50 rounded-lg text-xs font-medium transition-colors border border-gray-600/50 flex items-center justify-center gap-1.5"
-          >
-            {processing ? (
-              <><span className="animate-spin text-xs">⟳</span> Processando...</>
-            ) : (
-              <>▶ Processar agora</>
-            )}
-          </button>
           <button
             onClick={() => setEditingRule(null)}
             className="flex-1 sm:flex-none px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-medium transition-colors"
@@ -693,12 +666,6 @@ export default function AutomationPanel() {
               {statsLoading ? <span className="text-gray-600 text-base animate-pulse">—</span> : (totals?.failed ?? 0)}
             </p>
           </div>
-        </div>
-      )}
-
-      {lastResult && (
-        <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm">
-          {lastResult}
         </div>
       )}
 
