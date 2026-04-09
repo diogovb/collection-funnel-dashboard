@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+interface AudienceFilters {
+  professions: string[];
+  softwares: string[];
+  interests: string[];
+}
+
 interface FunnelRule {
   id: string;
   stage: string;
@@ -13,6 +19,7 @@ interface FunnelRule {
   sms_content: string | null;
   content_type: string;
   dynamic_action: string | null;
+  filters: AudienceFilters | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -98,6 +105,12 @@ const CHANNEL_ICONS: Record<string, string> = {
   both: "📧📱",
 };
 
+const AUDIENCE_OPTIONS = {
+  professions: ["Arquiteto(a)", "Designer de Interiores", "Projetista", "Engenheiro(a)", "Estudante", "Outro"],
+  softwares: ["SketchUp", "Revit", "ArchiCAD", "Promob", "AutoCAD", "Outro"],
+  interests: ["Blocos 3D", "Texturas e Materiais", "Render IA", "Outro"],
+} as const;
+
 const VARIABLES = [
   { name: "{{name}}", desc: "primeiro nome" },
   { name: "{{email}}", desc: "email" },
@@ -133,6 +146,47 @@ function wrapEmailHTML(content: string, subject: string): string {
 </td></tr>
 </table>
 </td></tr></table></body></html>`;
+}
+
+// ── Multi-pill select ──────────────────────────────────────
+function MultiPillSelect({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  const toggle = (val: string) => {
+    onChange(selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val]);
+  };
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-2">
+        {label}
+        {selected.length === 0 && <span className="ml-1.5 text-gray-600">(todos)</span>}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map(opt => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => toggle(opt)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+              selected.includes(opt)
+                ? "bg-indigo-600/25 border-indigo-500/60 text-indigo-300"
+                : "bg-transparent border-gray-600/50 text-gray-500 hover:border-gray-500 hover:text-gray-400"
+            }`}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Variable Pills ─────────────────────────────────────────
@@ -253,6 +307,9 @@ function RuleFormModal({
   const [subject, setSubject] = useState(rule?.subject || "");
   const [content, setContent] = useState(rule?.content || "");
   const [smsContent, setSmsContent] = useState(rule?.sms_content || "");
+  const [filterProfessions, setFilterProfessions] = useState<string[]>(rule?.filters?.professions ?? []);
+  const [filterSoftwares, setFilterSoftwares] = useState<string[]>(rule?.filters?.softwares ?? []);
+  const [filterInterests, setFilterInterests] = useState<string[]>(rule?.filters?.interests ?? []);
   const [saving, setSaving] = useState(false);
   const [showTest, setShowTest] = useState(false);
 
@@ -271,6 +328,11 @@ function RuleFormModal({
       content: channel === "sms" ? smsContent : content,
       sms_content: channel === "both" ? smsContent : null,
       content_type: "custom",
+      filters: {
+        professions: filterProfessions,
+        softwares: filterSoftwares,
+        interests: filterInterests,
+      },
       active: rule?.active ?? false,
     });
     setSaving(false);
@@ -356,6 +418,36 @@ function RuleFormModal({
                   ))}
                 </div>
                 <span className="text-xs text-gray-500">= {delayMinutes} min</span>
+              </div>
+            </div>
+
+            {/* Audience filters */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+                Filtros de audiência
+                {(filterProfessions.length + filterSoftwares.length + filterInterests.length) === 0 && (
+                  <span className="ml-2 normal-case font-normal text-gray-600">— sem filtro, envia para todos</span>
+                )}
+              </p>
+              <div className="bg-gray-800/20 border border-gray-700/40 rounded-xl p-4 space-y-4">
+                <MultiPillSelect
+                  label="Profissão"
+                  options={AUDIENCE_OPTIONS.professions}
+                  selected={filterProfessions}
+                  onChange={setFilterProfessions}
+                />
+                <MultiPillSelect
+                  label="Software"
+                  options={AUDIENCE_OPTIONS.softwares}
+                  selected={filterSoftwares}
+                  onChange={setFilterSoftwares}
+                />
+                <MultiPillSelect
+                  label="Interesse"
+                  options={AUDIENCE_OPTIONS.interests}
+                  selected={filterInterests}
+                  onChange={setFilterInterests}
+                />
               </div>
             </div>
 
@@ -676,6 +768,22 @@ export default function AutomationPanel() {
                         </>
                       )}
                     </div>
+                    {rule.filters && (() => {
+                      const tags = [
+                        ...(rule.filters.professions || []),
+                        ...(rule.filters.softwares || []),
+                        ...(rule.filters.interests || []),
+                      ];
+                      return tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {tags.map(tag => (
+                            <span key={tag} className="px-1.5 py-0.5 bg-indigo-900/30 border border-indigo-700/40 rounded text-[10px] text-indigo-400">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
 
                   {/* Actions */}

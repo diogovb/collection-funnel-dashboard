@@ -14,7 +14,7 @@ export async function GET() {
     // 2. Fetch active rules (to compute pendentes)
     const { data: rules, error: rulesError } = await supabaseAdmin
       .from("funnel_rules")
-      .select("id, stage, next_stage, delay_minutes, active");
+      .select("id, stage, next_stage, delay_minutes, active, filters");
 
     if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
 
@@ -70,17 +70,21 @@ export async function GET() {
     interface UserInfo {
       stages: Set<string>;
       stageTimestamps: Record<string, string>;
+      metadata: Record<string, any> | null;
     }
     const users = new Map<string, UserInfo>();
     for (const ev of events || []) {
       const email = ev.email || (ev.user_id ? uidToEmail.get(ev.user_id) : null);
       if (!email) continue;
       if (!users.has(email)) {
-        users.set(email, { stages: new Set(), stageTimestamps: {} });
+        users.set(email, { stages: new Set(), stageTimestamps: {}, metadata: null });
       }
       const u = users.get(email)!;
       u.stages.add(ev.event);
       if (!u.stageTimestamps[ev.event]) u.stageTimestamps[ev.event] = ev.created_at;
+      if (ev.metadata && ev.event === "signup_completed" && !u.metadata) {
+        u.metadata = ev.metadata;
+      }
     }
 
     const now = Date.now();
@@ -108,6 +112,23 @@ export async function GET() {
         if (elapsed < rule.delay_minutes) continue;
         // Not yet contacted
         if (contacted.has(email)) continue;
+        // Apply audience filters
+        const ruleFilters = rule.filters as { professions?: string[]; softwares?: string[]; interests?: string[] } | null;
+        if (ruleFilters) {
+          const meta = user.metadata || {};
+          if (ruleFilters.professions?.length) {
+            const v = String(meta.profession || "").toLowerCase();
+            if (!ruleFilters.professions.some((p: string) => v.includes(p.toLowerCase()))) continue;
+          }
+          if (ruleFilters.softwares?.length) {
+            const v = String(meta.software || "").toLowerCase();
+            if (!ruleFilters.softwares.some((s: string) => v.includes(s.toLowerCase()))) continue;
+          }
+          if (ruleFilters.interests?.length) {
+            const v = String(meta.what_brought || "").toLowerCase();
+            if (!ruleFilters.interests.some((i: string) => v.includes(i.toLowerCase()))) continue;
+          }
+        }
         count++;
       }
       pendentesPerRule[rule.id] = count;

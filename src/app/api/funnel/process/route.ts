@@ -15,6 +15,12 @@ interface FunnelEvent {
   created_at: string;
 }
 
+interface AudienceFilters {
+  professions?: string[];
+  softwares?: string[];
+  interests?: string[];
+}
+
 interface FunnelRule {
   id: string;
   stage: string;
@@ -26,6 +32,7 @@ interface FunnelRule {
   sms_content: string | null;
   content_type: string;
   dynamic_action: string | null;
+  filters: AudienceFilters | null;
   active: boolean;
 }
 
@@ -201,6 +208,24 @@ async function processQueue(): Promise<NextResponse> {
         // Check if already sent
         const key = `${rule.id}::${email}`;
         if (actionSet.has(key)) continue;
+
+        // Apply audience filters
+        if (rule.filters) {
+          const meta = user.metadata || {};
+          const { professions, softwares, interests } = rule.filters;
+          if (professions?.length) {
+            const v = String(meta.profession || "").toLowerCase();
+            if (!professions.some(p => v.includes(p.toLowerCase()))) continue;
+          }
+          if (softwares?.length) {
+            const v = String(meta.software || "").toLowerCase();
+            if (!softwares.some(s => v.includes(s.toLowerCase()))) continue;
+          }
+          if (interests?.length) {
+            const v = String(meta.what_brought || "").toLowerCase();
+            if (!interests.some(i => v.includes(i.toLowerCase()))) continue;
+          }
+        }
 
         // Prepare content
         const emailContent = replaceVars(rule.content, user.metadata, email);
