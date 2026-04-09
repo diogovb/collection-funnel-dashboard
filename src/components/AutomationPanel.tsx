@@ -307,9 +307,10 @@ function RuleFormModal({
   const [subject, setSubject] = useState(rule?.subject || "");
   const [content, setContent] = useState(rule?.content || "");
   const [smsContent, setSmsContent] = useState(rule?.sms_content || "");
-  const [filterProfessions, setFilterProfessions] = useState<string[]>(rule?.filters?.professions ?? []);
-  const [filterSoftwares, setFilterSoftwares] = useState<string[]>(rule?.filters?.softwares ?? []);
-  const [filterInterests, setFilterInterests] = useState<string[]>(rule?.filters?.interests ?? []);
+  const f = rule?.filters;
+  const [filterProfessions, setFilterProfessions] = useState<string[]>(Array.isArray(f?.professions) ? f!.professions : []);
+  const [filterSoftwares, setFilterSoftwares] = useState<string[]>(Array.isArray(f?.softwares) ? f!.softwares : []);
+  const [filterInterests, setFilterInterests] = useState<string[]>(Array.isArray(f?.interests) ? f!.interests : []);
   const [saving, setSaving] = useState(false);
   const [showTest, setShowTest] = useState(false);
 
