@@ -535,7 +535,7 @@ function RuleFormModal({
             </button>
             <div className="flex gap-3 order-1 sm:order-2">
               <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors">Cancelar</button>
-              <button onClick={handleSave} disabled={saving || (channel === "sms" ? !smsContent : !content) || (channel === "both" && !smsContent)}
+              <button onClick={handleSave} disabled={saving || (channel === "sms" ? !smsContent : !content)}
                 className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors">
                 {saving ? "Salvando..." : "Salvar regra"}
               </button>
