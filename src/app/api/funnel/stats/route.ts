@@ -14,7 +14,7 @@ export async function GET() {
     // 2. Fetch active rules (to compute pendentes)
     const { data: rules, error: rulesError } = await supabaseAdmin
       .from("funnel_rules")
-      .select("id, stage, next_stage, delay_minutes, active, filters");
+      .select("id, stage, next_stage, delay_minutes, active, filters, created_at");
 
     if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
 
@@ -55,12 +55,10 @@ export async function GET() {
     }
 
     // 4. Compute pendentes per rule
-    // Fetch funnel events from the last 7 days only (mirrors process route limit)
-    const maxAgeDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Fetch all funnel events — per-rule cutoff (rule.created_at) is applied below
     const { data: events } = await supabaseAdmin
       .from("funnel_events")
       .select("email, user_id, event, created_at, metadata")
-      .gte("created_at", maxAgeDate)
       .order("created_at", { ascending: true });
 
     // Build user stage map
@@ -102,6 +100,9 @@ export async function GET() {
 
       for (const [email, user] of users) {
         if (!user.stages.has(rule.stage)) continue;
+        // Only count users who signed up AFTER this rule was created
+        const signupTime = user.stageTimestamps["signup_completed"];
+        if (signupTime && signupTime < rule.created_at) continue;
         // For any_action: must have neither download nor render_ia
         if (rule.next_stage === "any_action") {
           if (user.stages.has("download") || user.stages.has("render_ia")) continue;

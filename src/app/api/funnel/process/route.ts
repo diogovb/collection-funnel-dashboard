@@ -34,6 +34,7 @@ interface FunnelRule {
   dynamic_action: string | null;
   filters: AudienceFilters | null;
   active: boolean;
+  created_at: string;
 }
 
 // Replace template variables {{name}}, {{email}}, {{phone}}
@@ -117,12 +118,11 @@ function isAuthorized(request: Request): boolean {
   return authHeader === `Bearer ${cronSecret}`;
 }
 
-const MAX_AGE_DAYS = 7;
 const MAX_BATCH_SIZE = 50;
 
 async function processQueue(): Promise<NextResponse> {
   try {
-    // 1. Get all active rules
+    // 1. Get all active rules (including created_at as the cutoff for eligible users)
     const { data: rules, error: rulesError } = await supabaseAdmin
       .from("funnel_rules")
       .select("*")
@@ -134,12 +134,10 @@ async function processQueue(): Promise<NextResponse> {
       return NextResponse.json({ message: "Nenhuma regra ativa", processed: 0 });
     }
 
-    // 2. Get funnel events from the last MAX_AGE_DAYS days only
-    const maxAgeDate = new Date(Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    // 2. Get funnel events — no global age cutoff; each rule uses its own created_at as cutoff
     const { data: events, error: eventsError } = await supabaseAdmin
       .from("funnel_events")
       .select("*")
-      .gte("created_at", maxAgeDate)
       .order("created_at", { ascending: true });
 
     if (eventsError) return NextResponse.json({ error: eventsError.message }, { status: 500 });
@@ -198,6 +196,10 @@ async function processQueue(): Promise<NextResponse> {
       for (const [email, user] of users) {
         // Must have the trigger stage
         if (!user.stages.has(rule.stage)) continue;
+
+        // Only process users who signed up AFTER this rule was created
+        const signupTime = user.stageTimestamps["signup_completed"];
+        if (signupTime && signupTime < rule.created_at) continue;
 
         // Must NOT have the next stage (if specified)
         // "any_action" is a virtual stage: user must have neither download nor render_ia
@@ -296,7 +298,7 @@ async function processQueue(): Promise<NextResponse> {
       sent: sentCount,
       failed: failedCount,
       skipped,
-      max_age_days: MAX_AGE_DAYS,
+      batch_limit_reached: skipped > 0,
       batch_limit: MAX_BATCH_SIZE,
       details: results,
     });
