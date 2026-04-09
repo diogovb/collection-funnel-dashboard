@@ -185,15 +185,11 @@ function countActiveFilters(f: AdvancedFilters): number {
   return Object.values(f).filter(Boolean).length;
 }
 
-const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
-// Raw keys and display labels both accepted
-const ICP_PROFESSIONS = new Set([
-  "arquiteto", "Arquiteto(a)",
-  "designer_interiores", "Designer de Interiores",
-  "projetista", "Projetista",
-]);
+// Stored as lowercase for case-insensitive comparison (values normalized via titleCase on ingest)
+const ICP_SOFTWARES_LC = new Set(["sketchup", "archicad", "revit"]);
+const ICP_PROFESSIONS_LC = new Set(["arquiteto", "arquiteto(a)", "designer de interiores", "designer_interiores", "projetista"]);
 function isIcp(software: string, profession: string): boolean {
-  return ICP_SOFTWARES.has(software) && ICP_PROFESSIONS.has(profession);
+  return ICP_SOFTWARES_LC.has(software.toLowerCase()) && ICP_PROFESSIONS_LC.has(profession.toLowerCase());
 }
 
 function daysAgo(n: number): string {
@@ -206,6 +202,10 @@ function todayStart(): string {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d.toISOString();
+}
+
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function formatDate(iso: string): string {
@@ -383,12 +383,12 @@ export default function Dashboard() {
       const m = (ev.metadata || {}) as any;
       if (m.name && !j.name) j.name = m.name;
       if (ev.email && !j.email) j.email = ev.email;
-      if (m.profession && !j.profession) j.profession = m.profession;
+      if (m.profession && !j.profession) j.profession = titleCase(String(m.profession));
       if (ev.event === "signup_completed") {
         if (!j.id) j.id = ev.id;
         if (m.method && !j.method) j.method = m.method;
-        if (m.software && !j.software) j.software = m.software;
-        if (m.what_brought && !j.whatBrought) j.whatBrought = m.what_brought;
+        if (m.software && !j.software) j.software = titleCase(String(m.software));
+        if (m.what_brought && !j.whatBrought) j.whatBrought = titleCase(String(m.what_brought));
         if (m.referrer && j.referrerDomain === "Direto") j.referrerDomain = extractReferrerDomain(m.referrer);
         if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
         if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;

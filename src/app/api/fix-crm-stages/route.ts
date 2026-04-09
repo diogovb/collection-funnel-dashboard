@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-const ICP_SOFTWARES = new Set(["SketchUp", "ArchiCAD", "Revit"]);
-// Raw keys and display labels both accepted
-const ICP_PROFESSIONS = new Set([
-  "arquiteto", "Arquiteto(a)",
-  "designer_interiores", "Designer de Interiores",
-  "projetista", "Projetista",
-]);
+const ICP_SOFTWARES_LC = new Set(["sketchup", "archicad", "revit"]);
+const ICP_PROFESSIONS_LC = new Set(["arquiteto", "arquiteto(a)", "designer de interiores", "designer_interiores", "projetista"]);
 
 function isIcp(software: string, profession: string): boolean {
-  return ICP_SOFTWARES.has(software) && ICP_PROFESSIONS.has(profession);
+  return ICP_SOFTWARES_LC.has(software.toLowerCase()) && ICP_PROFESSIONS_LC.has(profession.toLowerCase());
 }
 
 export async function GET(request: NextRequest) {
