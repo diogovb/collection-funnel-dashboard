@@ -305,8 +305,13 @@ function RuleFormModal({
 
   const [channel, setChannel] = useState(rule?.channel || "email");
   const [subject, setSubject] = useState(rule?.subject || "");
-  const [content, setContent] = useState(rule?.content || "");
-  const [smsContent, setSmsContent] = useState(rule?.sms_content || "");
+  // For "sms"-only rules, content is stored in rule.content (sms_content is null).
+  // For "both" rules, email body is in rule.content and SMS body is in rule.sms_content.
+  const [content, setContent] = useState(rule?.channel === "sms" ? "" : (rule?.content || ""));
+  const [smsContent, setSmsContent] = useState(
+    rule?.channel === "both" ? (rule?.sms_content || "") :
+    rule?.channel === "sms"  ? (rule?.content || "") : ""
+  );
   const f = rule?.filters;
   const [filterProfessions, setFilterProfessions] = useState<string[]>(Array.isArray(f?.professions) ? f!.professions : []);
   const [filterSoftwares, setFilterSoftwares] = useState<string[]>(Array.isArray(f?.softwares) ? f!.softwares : []);
