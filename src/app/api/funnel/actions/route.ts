@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
   const status = type === "falhas" ? "failed" : "sent";
   const { data: actions, error } = await supabaseAdmin
     .from("funnel_actions")
-    .select("user_email, status, error, created_at")
+    .select("user_email, channel, status, error, created_at")
     .eq("rule_id", ruleId)
     .eq("status", status)
     .order("created_at", { ascending: false });
