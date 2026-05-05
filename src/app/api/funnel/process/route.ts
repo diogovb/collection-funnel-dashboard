@@ -118,39 +118,68 @@ function isAuthorized(request: Request): boolean {
 }
 
 const MAX_BATCH_SIZE = 50;
+const EVENTS_LOOKBACK_DAYS = 30;
+
+// Fetches all rows from a Supabase query, paginating in 1000-row pages to
+// bypass the implicit row limit. `buildQuery` must return a fresh query
+// builder each call (Supabase builders are mutable and consumed by .range).
+async function fetchAll<T>(
+  buildQuery: () => any,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any }> {
+  const all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) return { data: all, error };
+    if (!data || data.length === 0) break;
+    all.push(...(data as T[]));
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
 
 async function processQueue(): Promise<NextResponse> {
   try {
     // 1. Get all active rules (including created_at as the cutoff for eligible users)
-    const { data: rules, error: rulesError } = await supabaseAdmin
-      .from("funnel_rules")
-      .select("*")
-      .eq("active", true)
-      .order("priority", { ascending: false });
+    const { data: rules, error: rulesError } = await fetchAll<FunnelRule>(() =>
+      supabaseAdmin
+        .from("funnel_rules")
+        .select("*")
+        .eq("active", true)
+        .order("priority", { ascending: false })
+    );
 
     if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
     if (!rules || rules.length === 0) {
       return NextResponse.json({ message: "Nenhuma regra ativa", processed: 0 });
     }
 
-    // 2. Get funnel events — filter server-side to only relevant events after earliest rule
-    const earliestRuleDate = (rules as FunnelRule[]).reduce(
+    // 2. Get funnel events — paginated to bypass Supabase's 1000-row default cap.
+    // Window: last EVENTS_LOOKBACK_DAYS, but never earlier than the oldest active
+    // rule (no point loading events that predate every rule).
+    const earliestRuleDate = rules.reduce(
       (min, r) => (r.created_at < min ? r.created_at : min),
-      (rules as FunnelRule[])[0].created_at
+      rules[0].created_at
     );
-    const { data: events, error: eventsError } = await supabaseAdmin
-      .from("funnel_events")
-      .select("*")
-      .gte("created_at", earliestRuleDate)
-      .in("event", ["signup_completed", "download", "render_ia"])
-      .order("created_at", { ascending: true });
+    const lookbackDate = new Date(Date.now() - EVENTS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const eventsCutoff = lookbackDate > earliestRuleDate ? lookbackDate : earliestRuleDate;
+    const { data: events, error: eventsError } = await fetchAll<FunnelEvent>(() =>
+      supabaseAdmin
+        .from("funnel_events")
+        .select("*")
+        .gte("created_at", eventsCutoff)
+        .in("event", ["signup_completed", "download", "render_ia"])
+        .order("created_at", { ascending: true })
+    );
 
     if (eventsError) return NextResponse.json({ error: eventsError.message }, { status: 500 });
 
-    // 3. Get all past actions to avoid duplicates
-    const { data: pastActions } = await supabaseAdmin
-      .from("funnel_actions")
-      .select("rule_id, user_email");
+    // 3. Get all past actions to avoid duplicates (paginated)
+    const { data: pastActions } = await fetchAll<{ rule_id: string; user_email: string }>(() =>
+      supabaseAdmin.from("funnel_actions").select("rule_id, user_email")
+    );
 
     const actionSet = new Set(
       (pastActions || []).map((a) => `${a.rule_id}::${a.user_email}`)
