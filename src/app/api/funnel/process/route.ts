@@ -284,6 +284,16 @@ async function processQueue(): Promise<NextResponse> {
           continue;
         }
 
+        // WhatsApp requires signup_completed metadata (name, profession, software,
+        // what_brought) AND a phone number — without those, the SDR agent has no
+        // context to compose a meaningful message. Skip silently (don't pollute
+        // the dashboard with "failures" that are really just missing data).
+        if (rule.channel === "whatsapp") {
+          if (!user.stages.has("signup_completed")) continue;
+          const meta = user.metadata || {};
+          if (!meta.phone && !meta.whatsapp) continue;
+        }
+
         // Check delay
         const stageTime = new Date(user.stageTimestamps[rule.stage]).getTime();
         const elapsed = (now - stageTime) / 60000; // minutes
