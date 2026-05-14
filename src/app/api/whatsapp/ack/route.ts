@@ -69,5 +69,32 @@ export async function POST(request: NextRequest) {
     if (actionErr) console.error("whatsapp/ack funnel_actions mirror error:", actionErr);
   }
 
+  // On successful delivery, advance the user's CRM stage to "contato_iniciado"
+  // — but only if they're still in "novo". Anyone already further along
+  // (em_conversa, ativado, etc.) was moved manually by the operator and we
+  // don't want to roll them back. Best effort.
+  if (status === "sent") {
+    const { data: signupEvent, error: lookupErr } = await supabaseAdmin
+      .from("funnel_events")
+      .select("id, metadata")
+      .eq("email", data.email)
+      .eq("event", "signup_completed")
+      .limit(1)
+      .maybeSingle();
+    if (lookupErr) {
+      console.error("whatsapp/ack crm lookup error:", lookupErr);
+    } else if (signupEvent) {
+      const meta = (signupEvent.metadata || {}) as Record<string, unknown>;
+      const currentStage = (meta.crm_stage as string | undefined) ?? "novo";
+      if (currentStage === "novo") {
+        const { error: crmErr } = await supabaseAdmin
+          .from("funnel_events")
+          .update({ metadata: { ...meta, crm_stage: "contato_iniciado" } })
+          .eq("id", signupEvent.id);
+        if (crmErr) console.error("whatsapp/ack crm update error:", crmErr);
+      }
+    }
+  }
+
   return NextResponse.json({ ok: true, id: data.id, status: data.status, attempts: data.attempts });
 }
