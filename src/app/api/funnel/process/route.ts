@@ -108,6 +108,45 @@ async function sendSMS(phone: string, message: string): Promise<{ success: boole
   }
 }
 
+async function enqueueWhatsapp(args: {
+  ruleId: string;
+  stage: string;
+  email: string;
+  phone: string;
+  metadata: Record<string, any>;
+  triggerTimestamp: string | undefined;
+}): Promise<{ success: boolean; error?: string }> {
+  const formatted = formatPhone(args.phone);
+  if (!formatted) return { success: false, error: "Telefone inválido: " + args.phone };
+
+  const context = {
+    name: args.metadata.name || args.email.split("@")[0],
+    email: args.email,
+    profession: args.metadata.profession || null,
+    software: args.metadata.software || null,
+    what_brought: args.metadata.what_brought || null,
+    trigger: args.stage,
+    triggered_at: args.triggerTimestamp || null,
+  };
+
+  const eventId = `${args.ruleId}::${args.email}`;
+
+  const { error } = await supabaseAdmin.from("whatsapp_outbox").insert({
+    event_id: eventId,
+    rule_id: args.ruleId,
+    email: args.email,
+    phone: formatted,
+    context,
+  });
+
+  if (error) {
+    // 23505 = unique_violation → job já existe, tratamos como idempotente
+    if ((error as any).code === "23505") return { success: true };
+    return { success: false, error: error.message };
+  }
+  return { success: true };
+}
+
 function isAuthorized(request: Request): boolean {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
@@ -289,24 +328,50 @@ async function processQueue(): Promise<NextResponse> {
 
         for (const ch of channels) {
           let result: { success: boolean; error?: string };
+          let actionMetadata: Record<string, unknown>;
 
           if (ch === "email") {
             result = await sendEmail(email, subject || "Collection", wrapEmailHTML(emailContent));
-          } else {
-            // SMS: strip HTML tags (in case email content was used as fallback)
+            actionMetadata = { subject, content_preview: emailContent.substring(0, 100) };
+          } else if (ch === "sms") {
             const smsText = smsContentResolved.replace(/<[^>]*>/g, "").substring(0, 160);
             result = await sendSMS(phone, smsText);
+            actionMetadata = { content_preview: smsContentResolved.substring(0, 100) };
+          } else if (ch === "whatsapp") {
+            if (!phone) {
+              result = { success: false, error: "Telefone ausente nos metadados" };
+            } else {
+              result = await enqueueWhatsapp({
+                ruleId: rule.id,
+                stage: rule.stage,
+                email,
+                phone,
+                metadata: user.metadata || {},
+                triggerTimestamp: user.stageTimestamps[rule.stage],
+              });
+            }
+            actionMetadata = { enqueued: true, trigger: rule.stage };
+          } else {
+            result = { success: false, error: `Canal desconhecido: ${ch}` };
+            actionMetadata = {};
           }
 
-          // Log action
+          // For whatsapp the message is not yet delivered — bridge will ack later.
+          // We log "queued" so funnel_actions still dedupes future runs.
+          const status = !result.success
+            ? "failed"
+            : ch === "whatsapp"
+              ? "queued"
+              : "sent";
+
           await supabaseAdmin.from("funnel_actions").insert({
             rule_id: rule.id,
             user_email: email,
             user_id: null,
             channel: ch,
-            status: result.success ? "sent" : "failed",
+            status,
             error: result.error || null,
-            metadata: { subject, content_preview: (ch === "sms" ? smsContentResolved : emailContent).substring(0, 100) },
+            metadata: actionMetadata,
           });
 
           batchCount++;
@@ -314,7 +379,7 @@ async function processQueue(): Promise<NextResponse> {
             rule_id: rule.id,
             user: email,
             channel: ch,
-            status: result.success ? "sent" : "failed",
+            status,
             error: result.error,
           });
 
