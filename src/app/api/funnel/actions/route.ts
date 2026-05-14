@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+// Paginated fetch — walks pages of 1000 to bypass PostgREST's default cap.
+async function fetchAll<T>(
+  buildQuery: () => any,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any }> {
+  const all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) return { data: all, error };
+    if (!data || data.length === 0) break;
+    all.push(...(data as T[]));
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
 // GET - List actions for a user OR detail list for a rule
 export async function GET(request: NextRequest) {
   const email = request.nextUrl.searchParams.get("email");
@@ -34,19 +52,30 @@ export async function GET(request: NextRequest) {
     if (ruleError || !rule) return NextResponse.json({ error: "Regra não encontrada" }, { status: 404 });
 
     const [{ data: events }, { data: pastActions }] = await Promise.all([
-      supabaseAdmin
-        .from("funnel_events")
-        .select("email, user_id, event, created_at, metadata")
-        .gte("created_at", rule.created_at)
-        .in("event", ["signup_completed", "download", "render_ia"])
-        .order("created_at", { ascending: true }),
-      supabaseAdmin
-        .from("funnel_actions")
-        .select("user_email")
-        .eq("rule_id", ruleId),
+      fetchAll<{ email: string | null; user_id: string | null; event: string; created_at: string; metadata: Record<string, any> | null }>(() =>
+        supabaseAdmin
+          .from("funnel_events")
+          .select("email, user_id, event, created_at, metadata")
+          .gte("created_at", rule.created_at)
+          .in("event", ["signup_completed", "download", "render_ia"])
+          .order("created_at", { ascending: true })
+      ),
+      fetchAll<{ user_email: string; status: string }>(() =>
+        supabaseAdmin
+          .from("funnel_actions")
+          .select("user_email, status")
+          .eq("rule_id", ruleId)
+      ),
     ]);
 
-    const contacted = new Set((pastActions || []).map((a) => a.user_email));
+    // Exclude only actions that already resolved (sent/failed). Queued actions
+    // remain "pendentes" — they're enqueued but not yet delivered, so they
+    // should still appear in the list to give users visibility into the queue.
+    const contacted = new Set(
+      (pastActions || [])
+        .filter((a) => a.status !== "queued")
+        .map((a) => a.user_email)
+    );
 
     const uidToEmail = new Map<string, string>();
     for (const ev of events || []) {
@@ -79,12 +108,20 @@ export async function GET(request: NextRequest) {
 
     for (const [userEmail, user] of users) {
       if (!user.stages.has(rule.stage)) continue;
-      const signupTime = user.stageTimestamps["signup_completed"];
-      if (signupTime && signupTime < rule.created_at) continue;
+      // Filter by the trigger event timestamp (not signup) so "first download"
+      // rules ignore the historical backlog.
+      const triggerTime = user.stageTimestamps[rule.stage];
+      if (triggerTime && triggerTime < rule.created_at) continue;
       if (rule.next_stage === "any_action") {
         if (user.stages.has("download") || user.stages.has("render_ia")) continue;
       } else if (rule.next_stage && user.stages.has(rule.next_stage)) {
         continue;
+      }
+      // Mirror funnel/process: whatsapp requires signup_completed metadata + a phone.
+      if (rule.channel === "whatsapp") {
+        if (!user.stages.has("signup_completed")) continue;
+        const m = user.metadata || {};
+        if (!m.phone && !m.whatsapp) continue;
       }
       const stageTime = new Date(user.stageTimestamps[rule.stage]).getTime();
       if ((now - stageTime) / 60000 < rule.delay_minutes) continue;
