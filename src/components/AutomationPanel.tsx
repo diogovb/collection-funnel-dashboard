@@ -59,12 +59,28 @@ interface FunnelAction {
 // ── Trigger definitions ────────────────────────────────────
 const TRIGGERS = [
   {
+    id: "first_download",
+    label: "Fez primeiro download",
+    description: "Acabou de baixar um produto pela primeira vez",
+    icon: "✅",
+    stage: "download",
+    next_stage: null as string | null,
+  },
+  {
+    id: "first_render",
+    label: "Fez primeiro render IA",
+    description: "Acabou de gerar uma renderização IA pela primeira vez",
+    icon: "🎨",
+    stage: "render_ia",
+    next_stage: null as string | null,
+  },
+  {
     id: "no_download",
     label: "Cadastrou e não fez Download",
     description: "Tem signup_completed mas não baixou nenhum produto",
     icon: "📥",
     stage: "signup_completed",
-    next_stage: "download",
+    next_stage: "download" as string | null,
   },
   {
     id: "no_render",
@@ -72,7 +88,7 @@ const TRIGGERS = [
     description: "Tem signup_completed mas não usou o Render IA",
     icon: "🎨",
     stage: "signup_completed",
-    next_stage: "render_ia",
+    next_stage: "render_ia" as string | null,
   },
   {
     id: "no_action",
@@ -80,13 +96,15 @@ const TRIGGERS = [
     description: "Tem signup_completed mas não baixou nem renderizou",
     icon: "🚫",
     stage: "signup_completed",
-    next_stage: "any_action",
+    next_stage: "any_action" as string | null,
   },
 ] as const;
 
 type TriggerId = typeof TRIGGERS[number]["id"];
 
 function getTriggerFromRule(rule: FunnelRule): TriggerId {
+  if (rule.stage === "download" && !rule.next_stage) return "first_download";
+  if (rule.stage === "render_ia" && !rule.next_stage) return "first_render";
   if (rule.stage === "signup_completed") {
     if (rule.next_stage === "download") return "no_download";
     if (rule.next_stage === "render_ia") return "no_render";
@@ -103,7 +121,14 @@ const CHANNEL_ICONS: Record<string, string> = {
   email: "📧",
   sms: "📱",
   both: "📧📱",
+  whatsapp: "💬",
 };
+
+function channelLabel(ch: string): string {
+  if (ch === "both") return "Email + SMS";
+  if (ch === "whatsapp") return "WhatsApp";
+  return ch.toUpperCase();
+}
 
 const AUDIENCE_OPTIONS = {
   professions: ["Arquiteto(a)", "Designer de Interiores", "Projetista", "Engenheiro(a)", "Estudante", "Outro"],
@@ -280,7 +305,7 @@ function RuleDetailModal({
                     <span className="text-sm font-medium text-white truncate">{item.name}</span>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {item.channels && item.channels.map((ch) => (
-                        <span key={ch} className="text-xs">{ch === "email" ? "📧" : "📱"}</span>
+                        <span key={ch} className="text-xs">{CHANNEL_ICONS[ch] || "📨"}</span>
                       ))}
                       {item.date && (
                         <span className="text-[11px] text-gray-500">{formatDate(item.date)}</span>
@@ -429,8 +454,11 @@ function RuleFormModal({
       next_stage: trigger.next_stage,
       delay_minutes: delayMinutes,
       channel,
-      subject: channel !== "sms" ? subject : null,
-      content: channel === "sms" ? smsContent : content,
+      subject: channel === "email" || channel === "both" ? subject : null,
+      content:
+        channel === "whatsapp" ? "" :
+        channel === "sms" ? smsContent :
+        content,
       sms_content: channel === "both" ? smsContent : null,
       content_type: "custom",
       filters: {
@@ -560,19 +588,32 @@ function RuleFormModal({
             {/* Channel */}
             <div>
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Canal</p>
-              <div className="flex gap-2">
-                {(["email", "sms", "both"] as const).map((ch) => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(["email", "sms", "both", "whatsapp"] as const).map((ch) => (
                   <button key={ch} onClick={() => setChannel(ch)}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+                    className={`py-2.5 rounded-xl text-sm font-medium transition-all border ${
                       channel === ch
                         ? "bg-indigo-600 border-indigo-500 text-white"
                         : "bg-gray-800/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300"
                     }`}>
-                    {CHANNEL_ICONS[ch]} {ch === "both" ? "Ambos" : ch.toUpperCase()}
+                    {CHANNEL_ICONS[ch]} {ch === "both" ? "Ambos" : ch === "whatsapp" ? "WhatsApp" : ch.toUpperCase()}
                   </button>
                 ))}
               </div>
             </div>
+
+            {/* WhatsApp info box (no template fields — agent composes) */}
+            {channel === "whatsapp" && (
+              <div className="bg-emerald-900/15 border border-emerald-700/30 rounded-xl p-4">
+                <p className="text-sm text-emerald-300 font-medium mb-1">💬 Mensagem via Agente IA</p>
+                <p className="text-xs text-emerald-200/80 leading-relaxed">
+                  A primeira mensagem será composta pelo agente Cleo no WhatsApp com base no contexto do usuário (nome, profissão, software, o que trouxe ao Collection). Não é necessário escrever template aqui.
+                </p>
+                <p className="text-xs text-emerald-200/60 mt-2">
+                  Os filtros de audiência acima continuam valendo. O envio entra na fila e o bridge local entrega.
+                </p>
+              </div>
+            )}
 
             {/* Email fields */}
             {(channel === "email" || channel === "both") && (
@@ -634,10 +675,12 @@ function RuleFormModal({
             </div>
           )}
           <div className="flex flex-col sm:flex-row justify-between gap-3 px-5 py-4 border-t border-gray-700/60">
-            <button onClick={() => setShowTest(true)} disabled={channel === "sms" ? !smsContent : !content}
-              className="px-4 py-2.5 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors order-2 sm:order-1 border border-gray-600/50">
-              🧪 Testar envio
-            </button>
+            {channel !== "whatsapp" ? (
+              <button onClick={() => setShowTest(true)} disabled={channel === "sms" ? !smsContent : !content}
+                className="px-4 py-2.5 bg-gray-700/60 hover:bg-gray-700 disabled:opacity-40 rounded-xl text-sm font-medium transition-colors order-2 sm:order-1 border border-gray-600/50">
+                🧪 Testar envio
+              </button>
+            ) : <div className="order-2 sm:order-1" />}
             <div className="flex gap-3 order-1 sm:order-2">
               <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors">Cancelar</button>
               <button onClick={handleSave} disabled={saving}
@@ -844,7 +887,7 @@ export default function AutomationPanel() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-gray-500">após {delayLabel}</span>
                       <span className="text-gray-700">·</span>
-                      <span className="text-xs text-gray-500">{CHANNEL_ICONS[rule.channel]} {rule.channel === "both" ? "Email + SMS" : rule.channel.toUpperCase()}</span>
+                      <span className="text-xs text-gray-500">{CHANNEL_ICONS[rule.channel]} {channelLabel(rule.channel)}</span>
                       {rule.subject && (
                         <>
                           <span className="text-gray-700">·</span>
@@ -974,9 +1017,9 @@ export function UserActionsList({ email }: { email: string }) {
       <p className="text-xs text-gray-500 mb-1">📋 Ações enviadas:</p>
       {actions.map((a) => (
         <div key={a.id} className="flex items-center gap-2 text-xs text-gray-400">
-          <span>{a.channel === "email" ? "📧" : "📱"}</span>
-          <span className={a.status === "sent" ? "text-green-400" : "text-red-400"}>
-            {a.status === "sent" ? "✓" : "✗"}
+          <span>{CHANNEL_ICONS[a.channel] || "📨"}</span>
+          <span className={a.status === "sent" ? "text-green-400" : a.status === "queued" ? "text-amber-400" : "text-red-400"}>
+            {a.status === "sent" ? "✓" : a.status === "queued" ? "⏳" : "✗"}
           </span>
           <span>{formatDate(a.created_at)}</span>
           {a.metadata?.subject && <span className="truncate text-gray-500">— {String(a.metadata.subject)}</span>}
