@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     .from("whatsapp_outbox")
     .update(update)
     .eq("event_id", event_id)
-    .select("id, status, attempts")
+    .select("id, rule_id, email, status, attempts")
     .maybeSingle();
 
   if (error) {
@@ -51,6 +51,22 @@ export async function POST(request: NextRequest) {
 
   if (!data) {
     return NextResponse.json({ error: "event_id not found" }, { status: 404 });
+  }
+
+  // Mirror status into funnel_actions so the dashboard counters reflect
+  // delivery (sent/failed) instead of staying as "queued" forever.
+  // Best effort: failure here doesn't fail the ack.
+  if (data.rule_id) {
+    const { error: actionErr } = await supabaseAdmin
+      .from("funnel_actions")
+      .update({
+        status,
+        error: status === "failed" ? (errorMsg || null) : null,
+      })
+      .eq("rule_id", data.rule_id)
+      .eq("user_email", data.email)
+      .eq("channel", "whatsapp");
+    if (actionErr) console.error("whatsapp/ack funnel_actions mirror error:", actionErr);
   }
 
   return NextResponse.json({ ok: true, id: data.id, status: data.status, attempts: data.attempts });

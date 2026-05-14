@@ -25,6 +25,7 @@ export async function GET() {
     const byRule: Record<string, {
       sent: number;
       failed: number;
+      queued: number;
       today: number;
       lastSent: string | null;
       contacted: Set<string>;
@@ -36,7 +37,7 @@ export async function GET() {
 
     for (const a of actions || []) {
       if (!byRule[a.rule_id]) {
-        byRule[a.rule_id] = { sent: 0, failed: 0, today: 0, lastSent: null, contacted: new Set() };
+        byRule[a.rule_id] = { sent: 0, failed: 0, queued: 0, today: 0, lastSent: null, contacted: new Set() };
       }
       const r = byRule[a.rule_id];
       if (a.status === "sent") {
@@ -47,6 +48,8 @@ export async function GET() {
           r.today++;
           totalToday++;
         }
+      } else if (a.status === "queued") {
+        r.queued++;
       } else {
         r.failed++;
         totalFailed++;
@@ -148,12 +151,16 @@ export async function GET() {
       sent: number; failed: number; today: number; lastSent: string | null; pendentes: number;
     }> = {};
     for (const [ruleId, stats] of Object.entries(byRule)) {
+      // PENDENTES = users still upstream (computed from funnel_events) + jobs
+      // already enqueued but not yet delivered (status=queued, mostly whatsapp).
+      // The two sets don't overlap: queued users are in `contacted`, so they
+      // don't get counted by pendentesPerRule.
       byRuleSerialized[ruleId] = {
         sent: stats.sent,
         failed: stats.failed,
         today: stats.today,
         lastSent: stats.lastSent,
-        pendentes: pendentesPerRule[ruleId] ?? 0,
+        pendentes: (pendentesPerRule[ruleId] ?? 0) + stats.queued,
       };
     }
     // Add rules with no actions yet
