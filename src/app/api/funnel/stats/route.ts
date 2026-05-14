@@ -41,7 +41,7 @@ export async function GET() {
     // 2. Fetch active rules (to compute pendentes)
     const { data: rules, error: rulesError } = await supabaseAdmin
       .from("funnel_rules")
-      .select("id, stage, next_stage, delay_minutes, active, filters, created_at");
+      .select("id, stage, next_stage, delay_minutes, channel, active, filters, created_at");
 
     if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
 
@@ -153,6 +153,14 @@ export async function GET() {
           if (user.stages.has("download") || user.stages.has("render_ia")) continue;
         } else if (rule.next_stage && user.stages.has(rule.next_stage)) {
           continue;
+        }
+        // Mirror the whatsapp eligibility guard from funnel/process: users
+        // without signup_completed or without a phone are silently skipped
+        // there, so they should NOT inflate PENDENTES here either.
+        if (rule.channel === "whatsapp") {
+          if (!user.stages.has("signup_completed")) continue;
+          const meta = user.metadata || {};
+          if (!meta.phone && !meta.whatsapp) continue;
         }
         // Check delay
         const stageTime = new Date(user.stageTimestamps[rule.stage]).getTime();
