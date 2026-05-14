@@ -109,9 +109,10 @@ export async function GET() {
 
       for (const [email, user] of users) {
         if (!user.stages.has(rule.stage)) continue;
-        // Only count users who signed up AFTER this rule was created
-        const signupTime = user.stageTimestamps["signup_completed"];
-        if (signupTime && signupTime < rule.created_at) continue;
+        // Only count trigger events that happened AFTER this rule was created
+        // (keep "first download" rules from sweeping in the historical backlog).
+        const triggerTime = user.stageTimestamps[rule.stage];
+        if (triggerTime && triggerTime < rule.created_at) continue;
         // For any_action: must have neither download nor render_ia
         if (rule.next_stage === "any_action") {
           if (user.stages.has("download") || user.stages.has("render_ia")) continue;

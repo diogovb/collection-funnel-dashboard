@@ -270,9 +270,11 @@ async function processQueue(): Promise<NextResponse> {
         // Must have the trigger stage
         if (!user.stages.has(rule.stage)) continue;
 
-        // Only process users who signed up AFTER this rule was created
-        const signupTime = user.stageTimestamps["signup_completed"];
-        if (signupTime && signupTime < rule.created_at) continue;
+        // Only process trigger events that happened AFTER this rule was
+        // created. Filtering by the trigger stage (not by signup) is what
+        // makes "first download" rules ignore the historical backlog.
+        const triggerTime = user.stageTimestamps[rule.stage];
+        if (triggerTime && triggerTime < rule.created_at) continue;
 
         // Must NOT have the next stage (if specified)
         // "any_action" is a virtual stage: user must have neither download nor render_ia
