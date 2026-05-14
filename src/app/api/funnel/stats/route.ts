@@ -1,13 +1,40 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+// Paginated fetch — bypasses PostgREST's default 1000-row cap by walking
+// pages until a short page comes back. `buildQuery` must return a fresh
+// builder each call (Supabase builders are consumed by .range).
+async function fetchAll<T>(
+  buildQuery: () => any,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any }> {
+  const all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) return { data: all, error };
+    if (!data || data.length === 0) break;
+    all.push(...(data as T[]));
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
 export async function GET() {
   try {
-    // 1. Fetch all actions
-    const { data: actions, error: actionsError } = await supabaseAdmin
-      .from("funnel_actions")
-      .select("rule_id, status, created_at, user_email")
-      .order("created_at", { ascending: false });
+    // 1. Fetch all actions (paginated)
+    const { data: actions, error: actionsError } = await fetchAll<{
+      rule_id: string;
+      status: string;
+      created_at: string;
+      user_email: string;
+    }>(() =>
+      supabaseAdmin
+        .from("funnel_actions")
+        .select("rule_id, status, created_at, user_email")
+        .order("created_at", { ascending: false })
+    );
 
     if (actionsError) return NextResponse.json({ error: actionsError.message }, { status: 500 });
 
@@ -63,12 +90,20 @@ export async function GET() {
     const earliestRuleDate = activeRules.length > 0
       ? activeRules.reduce((min, r) => (r.created_at < min ? r.created_at : min), activeRules[0].created_at)
       : new Date().toISOString();
-    const { data: events } = await supabaseAdmin
-      .from("funnel_events")
-      .select("email, user_id, event, created_at, metadata")
-      .gte("created_at", earliestRuleDate)
-      .in("event", ["signup_completed", "download", "render_ia"])
-      .order("created_at", { ascending: true });
+    const { data: events } = await fetchAll<{
+      email: string | null;
+      user_id: string | null;
+      event: string;
+      created_at: string;
+      metadata: Record<string, any> | null;
+    }>(() =>
+      supabaseAdmin
+        .from("funnel_events")
+        .select("email, user_id, event, created_at, metadata")
+        .gte("created_at", earliestRuleDate)
+        .in("event", ["signup_completed", "download", "render_ia"])
+        .order("created_at", { ascending: true })
+    );
 
     // Build user stage map
     const uidToEmail = new Map<string, string>();
