@@ -535,6 +535,16 @@ export default function Dashboard() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [signupJourneys]);
 
+  // Origem de cada cadastro: utm_source, ou Google/Meta Ads inferido de gclid/fbclid, ou Site.
+  const origemSeg = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const j of signupJourneys) {
+      const label = formatOrigin(j.utmSource, j.gclid, j.fbclid);
+      map.set(label, (map.get(label) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [signupJourneys]);
+
   const hasCampaigns = campaignSeg.length > 0;
 
   const filterOptions = useMemo(() => {
@@ -725,6 +735,9 @@ export default function Dashboard() {
             }}
           />
         </div>
+
+        {/* Origem dos cadastros (plugin / Google Ads / Meta Ads / Site) */}
+        <SegCard title="Origem dos cadastros" data={origemSeg} />
 
         {/* Campaigns */}
         {hasCampaigns && (
