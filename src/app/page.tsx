@@ -144,6 +144,8 @@ interface UserJourney {
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
+  gclid?: string;
+  fbclid?: string;
   stepsCompleted: Set<string>;
   lastStep: string;
   lastStepLabel: string;
@@ -206,6 +208,14 @@ function todayStart(): string {
 
 function titleCase(s: string): string {
   return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Origem: usa utm_source ("plugin" → "Plugin"); senão infere de gclid/fbclid (anúncios); senão "Site".
+function formatOrigin(utmSource: string, gclid?: string, fbclid?: string): string {
+  if (utmSource) return titleCase(utmSource);
+  if (gclid) return "Google Ads";
+  if (fbclid) return "Meta Ads";
+  return "Site";
 }
 
 function formatDate(iso: string): string {
@@ -393,6 +403,8 @@ export default function Dashboard() {
         if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
         if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;
         if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
+        if (m.gclid && !j.gclid) j.gclid = String(m.gclid);
+        if (m.fbclid && !j.fbclid) j.fbclid = String(m.fbclid);
         if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
       if (m.platform && !j.platform) j.platform = m.platform;
@@ -843,6 +855,9 @@ export default function Dashboard() {
                           <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
                             {j.name || j.email || "Sem nome"}
                           </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(j.utmSource || j.gclid || j.fbclid) ? "bg-fuchsia-500/20 text-fuchsia-300" : "bg-gray-600/20 text-gray-400"}`}>
+                            {formatOrigin(j.utmSource, j.gclid, j.fbclid)}
+                          </span>
                           {j.profession && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                               {PROFESSION_LABELS[j.profession] || j.profession}
@@ -941,6 +956,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
+                <Meta label="Origem" value={selectedUser.utmCampaign ? `${formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid)} · ${selectedUser.utmCampaign}` : formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid)} />
                 <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />
                 <Meta label="Estado" value={selectedUser.state ? `${selectedUser.state} — ${STATE_NAMES[selectedUser.state] || ""}` : "—"} />
                 <Meta label="Software" value={selectedUser.software || "—"} />
