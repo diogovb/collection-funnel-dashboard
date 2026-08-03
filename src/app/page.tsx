@@ -144,6 +144,8 @@ interface UserJourney {
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
+  /** plugin_sketchup | plugin_revit | web. Ausente no histórico até 03/08. */
+  surface: string;
   gclid?: string;
   fbclid?: string;
   stepsCompleted: Set<string>;
@@ -210,12 +212,36 @@ function titleCase(s: string): string {
   return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// Origem: usa utm_source ("plugin" → "Plugin"); senão infere de gclid/fbclid (anúncios); senão "Site".
-function formatOrigin(utmSource: string, gclid?: string, fbclid?: string): string {
-  if (utmSource) return titleCase(utmSource);
-  if (gclid) return "Google Ads";
-  if (fbclid) return "Meta Ads";
-  return "Site";
+// Origem em DUAS dimensões, que antes brigavam por um campo só:
+//   canal   — de onde veio o clique (utm_source, ou inferido de gclid/fbclid)
+//   surface — em que superfície a pessoa se cadastrou (plugin ou navegador)
+// Quando as duas dizem a mesma coisa mostra uma; quando diferem (anúncio que
+// converteu DENTRO do plugin) mostra as duas, que era o caso que se perdia.
+// Sem surface — todo o histórico até 03/08 — cai no comportamento antigo.
+function formatOrigin(
+  utmSource: string,
+  gclid?: string,
+  fbclid?: string,
+  surface?: string,
+): string {
+  const canalCru = utmSource || (gclid ? "google_ads" : fbclid ? "meta_ads" : "");
+  // Quando o evento traz `surface`, um utm_source "plugin"/"site" é o nosso
+  // próprio fallback, não canal de aquisição — mostrar os dois viraria
+  // "Plugin · Plugin (Revit)". Sem `surface` (histórico) o valor é o que a
+  // pessoa realmente trouxe na URL e continua valendo como canal.
+  const ehFallbackProprio =
+    !!surface && ["plugin", "site"].includes(canalCru.toLowerCase());
+  const canal =
+    canalCru && !ehFallbackProprio
+      ? titleCase(canalCru.replace(/_/g, " "))
+      : null;
+  const plugin = surface?.startsWith("plugin")
+    ? surface === "plugin_revit"
+      ? "Plugin (Revit)"
+      : "Plugin"
+    : null;
+  if (canal && plugin) return `${canal} · ${plugin}`;
+  return canal ?? plugin ?? "Site";
 }
 
 function formatDate(iso: string): string {
@@ -375,7 +401,7 @@ export default function Dashboard() {
           id: "",
           name: "", email: "", profession: "", method: "", platform: "", phone: "",
           software: "", whatBrought: "", state: null,
-          referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "",
+          referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "",
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -401,6 +427,7 @@ export default function Dashboard() {
         if (m.what_brought && !j.whatBrought) j.whatBrought = titleCase(String(m.what_brought));
         if (m.referrer && j.referrerDomain === "Direto") j.referrerDomain = extractReferrerDomain(m.referrer);
         if (m.utm_source && !j.utmSource) j.utmSource = m.utm_source;
+        if (m.surface && !j.surface) j.surface = String(m.surface);
         if (m.utm_medium && !j.utmMedium) j.utmMedium = m.utm_medium;
         if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
         if (m.gclid && !j.gclid) j.gclid = String(m.gclid);
@@ -539,7 +566,7 @@ export default function Dashboard() {
   const origemSeg = useMemo(() => {
     const map = new Map<string, number>();
     for (const j of signupJourneys) {
-      const label = formatOrigin(j.utmSource, j.gclid, j.fbclid);
+      const label = formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface);
       map.set(label, (map.get(label) || 0) + 1);
     }
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -868,8 +895,8 @@ export default function Dashboard() {
                           <span className="font-medium text-sm truncate group-hover:text-indigo-300 transition-colors">
                             {j.name || j.email || "Sem nome"}
                           </span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(j.utmSource || j.gclid || j.fbclid) ? "bg-fuchsia-500/20 text-fuchsia-300" : "bg-gray-600/20 text-gray-400"}`}>
-                            {formatOrigin(j.utmSource, j.gclid, j.fbclid)}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(j.utmSource || j.gclid || j.fbclid || j.surface) ? "bg-fuchsia-500/20 text-fuchsia-300" : "bg-gray-600/20 text-gray-400"}`}>
+                            {formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface)}
                           </span>
                           {j.profession && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
@@ -969,7 +996,10 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
-                <Meta label="Origem" value={selectedUser.utmCampaign ? `${formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid)} · ${selectedUser.utmCampaign}` : formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid)} />
+                <Meta label="Origem" value={(() => {
+                  const base = formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid, selectedUser.surface);
+                  return selectedUser.utmCampaign ? `${base} · ${selectedUser.utmCampaign}` : base;
+                })()} />
                 <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />
                 <Meta label="Estado" value={selectedUser.state ? `${selectedUser.state} — ${STATE_NAMES[selectedUser.state] || ""}` : "—"} />
                 <Meta label="Software" value={selectedUser.software || "—"} />
