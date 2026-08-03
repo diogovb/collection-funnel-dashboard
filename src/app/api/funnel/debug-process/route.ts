@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isAuthorized } from "@/lib/api-secret";
 
 interface AudienceFilters {
   professions?: string[];
@@ -25,7 +26,7 @@ interface FunnelRule {
 }
 
 export async function GET(request: NextRequest) {
-  if (request.nextUrl.searchParams.get("secret") !== "collection2024") {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

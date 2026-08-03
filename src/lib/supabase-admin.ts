@@ -1,8 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://cnpfyybiqoptkciXgpik.supabase.co";
-// Server-side service role key - never expose to client
-const supabaseServiceKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucGZ5eWJpcW9wdGtjaXhncGlrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjMwNzczMSwiZXhwIjoyMDg3ODgzNzMxfQ.XMeCTYUreazLtkOZUGqA7rLGq4_AmfdX0rhhV0Jea8M";
+// Server-side only. A service_role bypassa RLS — NUNCA hardcodar nem expor ao client.
+const supabaseUrl =
+  process.env.FUNNEL_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.FUNNEL_SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error(
+    "FUNNEL_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL e FUNNEL_SUPABASE_SERVICE_ROLE_KEY precisam estar configuradas"
+  );
+}
 
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {

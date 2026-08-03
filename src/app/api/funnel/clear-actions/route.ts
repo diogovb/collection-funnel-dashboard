@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isAuthorized } from "@/lib/api-secret";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  if (searchParams.get("secret") !== "collection2024") {
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

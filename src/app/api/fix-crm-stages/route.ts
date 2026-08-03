@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isAuthorized } from "@/lib/api-secret";
 
 const ICP_SOFTWARES_LC = new Set(["sketchup", "archicad", "revit"]);
 const ICP_PROFESSIONS_LC = new Set(["arquiteto", "arquiteto(a)", "designer de interiores", "designer_interiores", "projetista"]);
@@ -9,8 +10,7 @@ function isIcp(software: string, profession: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get("secret");
-  if (secret !== "collection2024") {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
