@@ -151,6 +151,13 @@ interface UserJourney {
   utmCampaign: string;
   /** plugin_sketchup | plugin_revit | web. Ausente no histórico até 03/08. */
   surface: string;
+  /**
+   * Já baixou algo de DENTRO do plugin — independente de onde se cadastrou.
+   * É a ativação que o produto persegue: sair da web e ir para o plugin.
+   * Não vem do funil; vem do Postgres, cruzado por e-mail (ver o efeito que
+   * preenche `pluginActivatedEmails`).
+   */
+  activatedPlugin: boolean;
   gclid?: string;
   fbclid?: string;
   stepsCompleted: Set<string>;
@@ -168,7 +175,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 type AdvancedFilters = {
@@ -271,6 +278,8 @@ export default function Dashboard() {
   const [userPage, setUserPage] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
   const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
+  /** E-mails que já baixaram de dentro do plugin (vem do Postgres). */
+  const [pluginActivatedEmails, setPluginActivatedEmails] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"dashboard" | "drillList" | "userDetail">("dashboard");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -321,6 +330,32 @@ export default function Dashboard() {
     const interval = setInterval(fetchEvents, 30_000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
+
+  /* Ativação no plugin: quem se cadastrou no período e DEPOIS baixou de
+     dentro do plugin. Vem do Postgres (via Metabase), não do funil — são 12
+     a 16 mil downloads por dia, que não cabem na tabela de eventos nem nesta
+     página, que agrega tudo em memória.
+
+     Só quando o PERÍODO muda, e não no refresh de 30s: o resultado leva
+     segundos e não muda de minuto a minuto. */
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/plugin-activation?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
+        );
+        if (!res.ok) return;
+        const { emails } = (await res.json()) as { emails?: string[] };
+        if (!cancelado && Array.isArray(emails)) {
+          setPluginActivatedEmails(new Set(emails.map((e) => e.toLowerCase())));
+        }
+      } catch {
+        /* sem o card de ativação o dashboard segue inteiro */
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [dateFrom, dateTo]);
 
   // Restore filters from localStorage on mount
   useEffect(() => {
@@ -407,6 +442,7 @@ export default function Dashboard() {
           name: "", email: "", profession: "", method: "", platform: "", phone: "",
           software: "", whatBrought: "", state: null,
           referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "",
+          activatedPlugin: false,
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -457,6 +493,9 @@ export default function Dashboard() {
     for (const j of map.values()) {
       j.downloadCount = j.downloads.length;
       j.renderCount = j.renders.length;
+      /* O cruzamento com o Postgres é por e-mail — é a única chave que os
+         dois lados têm. Jornada sem e-mail (só session_id) nunca ativa. */
+      j.activatedPlugin = !!j.email && pluginActivatedEmails.has(j.email.toLowerCase());
       if (j.phone) j.state = dddToState(j.phone);
       // Apply ICP-based default when crm_stage was never explicitly set in metadata
       if (!explicitCrmStages.has(j.key)) {
@@ -472,7 +511,7 @@ export default function Dashboard() {
     }
 
     return Array.from(map.values()).sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
-  }, [events]);
+  }, [events, pluginActivatedEmails]);
 
   const funnelCounts = useMemo(() => {
     return FUNNEL_STEPS.map(s => ({
@@ -497,6 +536,9 @@ export default function Dashboard() {
   const totalDownloads = useMemo(() => signupJourneys.filter(j => j.downloadCount > 0).length, [signupJourneys]);
   const totalRenders = useMemo(() => signupJourneys.filter(j => j.renderCount > 0).length, [signupJourneys]);
   const icpCount = useMemo(() => signupJourneys.filter(j => isIcp(j.software, j.profession)).length, [signupJourneys]);
+  /* Mesma base dos outros cards (signupJourneys) para as porcentagens
+     conversarem entre si. */
+  const pluginActivatedCount = useMemo(() => signupJourneys.filter(j => j.activatedPlugin).length, [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -654,6 +696,8 @@ export default function Dashboard() {
           return j.downloadCount > 0;
         case "hasRenders":
           return j.renderCount > 0;
+        case "activatedPlugin":
+          return j.activatedPlugin;
         case "icp":
           return isIcp(j.software, j.profession);
         default:
@@ -724,7 +768,7 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
           <MetricCard
             label="Leads ICP"
@@ -746,6 +790,20 @@ export default function Dashboard() {
             sub="usuários renderizaram"
             color="#06b6d4"
             onClick={() => openDrill("hasRenders", "true", "Com renders IA")}
+          />
+          {/* A métrica de ativação: cadastrou (em qualquer lugar) e DEPOIS
+              baixou de dentro do plugin. É o movimento que o produto quer.
+              Âmbar de propósito — é a que se olha primeiro. */}
+          <MetricCard
+            label="Ativou no plugin"
+            value={formatNumber(pluginActivatedCount)}
+            sub={
+              signupJourneys.length
+                ? `${((100 * pluginActivatedCount) / signupJourneys.length).toFixed(1)}% dos cadastros`
+                : "baixaram dentro do plugin"
+            }
+            color="#f59e0b"
+            onClick={() => openDrill("activatedPlugin", "true", "Ativaram no plugin")}
           />
         </div>
 
