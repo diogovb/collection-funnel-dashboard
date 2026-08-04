@@ -82,11 +82,16 @@ function formatNumber(n: number): string {
   return n.toLocaleString("pt-BR");
 }
 
+// "Criaram conta" e "completaram o cadastro" eram a mesma barra, e não são a
+// mesma coisa: quem entra por Google cria a conta na etapa do WhatsApp e só
+// depois responde o perfil. Em 03/08 o banco tinha 135 cadastros no dia e o
+// funil 64 — boa parte da diferença é gente parada exatamente entre os dois.
 const FUNNEL_STEPS = [
-  { key: "signup_completed", label: "Cadastro", icon: "📋", desc: "Criaram conta" },
+  { key: "signup_account_created", label: "Conta criada", icon: "🔑", desc: "Criaram a conta" },
+  { key: "signup_completed", label: "Cadastro completo", icon: "📋", desc: "Responderam o perfil" },
 ] as const;
 
-const FUNNEL_COLORS = ["#6366f1"];
+const FUNNEL_COLORS = ["#a855f7", "#6366f1"];
 const SEG_COLORS = ["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6", "#f97316"];
 
 const PROFESSION_LABELS: Record<string, string> = {
@@ -420,7 +425,9 @@ export default function Dashboard() {
       if (m.name && !j.name) j.name = String(m.name).split(" ")[0];
       if (ev.email && !j.email) j.email = ev.email;
       if (m.profession && !j.profession) j.profession = titleCase(String(m.profession));
-      if (ev.event === "signup_completed") {
+      // `signup_account_created` entra junto: quem para nessa etapa também tem
+      // nome, telefone e origem, e sem isto apareceria na lista sem rótulo.
+      if (ev.event === "signup_completed" || ev.event === "signup_account_created") {
         if (!j.id) j.id = ev.id;
         if (m.method && !j.method) j.method = m.method;
         if (m.software && !j.software) j.software = titleCase(String(m.software));
