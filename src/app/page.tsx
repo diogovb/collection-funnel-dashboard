@@ -87,11 +87,26 @@ function formatNumber(n: number): string {
 // depois responde o perfil. Em 03/08 o banco tinha 135 cadastros no dia e o
 // funil 64 — boa parte da diferença é gente parada exatamente entre os dois.
 const FUNNEL_STEPS = [
+  /* `account_created` vem do BACKEND, de uma extensão do Prisma em
+     `user.create`: é a verdade do banco, uma linha por conta, venha da porta
+     que vier. Os outros dois vêm do front e contam a jornada de quem passou
+     pelas telas. Dez pontos do código criam conta e só um emitia evento — daí
+     os 91 num dia de 143. */
+  { key: "account_created", label: "Conta criada (banco)", icon: "🗄️", desc: "Existem no Postgres" },
   { key: "signup_account_created", label: "Conta criada", icon: "🔑", desc: "Criaram a conta" },
   { key: "signup_completed", label: "Cadastro completo", icon: "📋", desc: "Responderam o perfil" },
 ] as const;
 
-const FUNNEL_COLORS = ["#a855f7", "#6366f1"];
+/**
+ * Quem conta como cadastro nos cards.
+ *
+ * União, e não só `account_created`: eventos anteriores à instrumentação do
+ * backend não têm o evento novo, e trocar seco faria o histórico despencar.
+ * Conforme o backend cobre tudo, os dois conjuntos convergem.
+ */
+const EVENTOS_DE_CADASTRO: readonly string[] = ["account_created", "signup_completed"];
+
+const FUNNEL_COLORS = ["#8b5cf6", "#a855f7", "#6366f1"];
 const SEG_COLORS = ["#6366f1", "#a855f7", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#3b82f6", "#f97316"];
 
 const PROFESSION_LABELS: Record<string, string> = {
@@ -463,8 +478,18 @@ export default function Dashboard() {
       if (m.profession && !j.profession) j.profession = titleCase(String(m.profession));
       // `signup_account_created` entra junto: quem para nessa etapa também tem
       // nome, telefone e origem, e sem isto apareceria na lista sem rótulo.
-      if (ev.event === "signup_completed" || ev.event === "signup_account_created") {
-        if (!j.id) j.id = ev.id;
+      // `account_created` (do backend) também: para quem nunca passou pelas
+      // telas, é a ÚNICA fonte de método e origem que a jornada vai ter.
+      if (
+        ev.event === "signup_completed" ||
+        ev.event === "signup_account_created" ||
+        ev.event === "account_created"
+      ) {
+        /* `j.id` é o alvo do botão de excluir e sempre foi o id de um evento
+           do FRONT. O `account_created` chega antes (o backend emite na
+           criação da conta), então sem esta ressalva ele roubaria o alvo e o
+           excluir passaria a apagar outra linha. */
+        if (!j.id && ev.event !== "account_created") j.id = ev.id;
         if (m.method && !j.method) j.method = m.method;
         if (m.software && !j.software) j.software = titleCase(String(m.software));
         if (m.what_brought && !j.whatBrought) j.whatBrought = titleCase(String(m.what_brought));
@@ -523,7 +548,13 @@ export default function Dashboard() {
     }));
   }, [journeys]);
 
-  const signupJourneys = useMemo(() => journeys.filter(j => j.stepsCompleted.has("signup_completed")), [journeys]);
+  /* Base de TODOS os cards. Passou a incluir quem só tem `account_created`:
+     a conta existe no banco, então existe como cadastro — mesmo que a pessoa
+     nunca tenha chegado ao fim das telas. */
+  const signupJourneys = useMemo(
+    () => journeys.filter(j => EVENTOS_DE_CADASTRO.some(e => j.stepsCompleted.has(e))),
+    [journeys],
+  );
 
   // ─── Metric cards ───────────────────────────────────────────────────────────
   const todaySignups = useMemo(() => {
