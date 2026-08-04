@@ -1,32 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-
-// Metabase Collection PostgreSQL
-const METABASE_URL = "https://metabase.collection.com.br";
-const METABASE_API_KEY = "mb_HCdbdyTeP9uQMmbIndq4p1Il1ZXsRWeEavGejy2vitU=";
-
-async function queryMetabase(sql: string): Promise<any[]> {
-  const res = await fetch(`${METABASE_URL}/api/dataset`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": METABASE_API_KEY,
-    },
-    body: JSON.stringify({
-      database: 10, // Collection PostgreSQL - PROD
-      type: "native",
-      native: { query: sql },
-    }),
-  });
-  const data = await res.json();
-  if (!data.data?.rows) return [];
-  const cols = data.data.cols.map((c: any) => c.name);
-  return data.data.rows.map((row: any[]) => {
-    const obj: any = {};
-    cols.forEach((col: string, i: number) => (obj[col] = row[i]));
-    return obj;
-  });
-}
+/* Saiu daqui para @/lib/metabase quando a rota de ativação no plugin passou
+   a precisar do mesmo acesso. Mesmo comportamento. */
+import { queryMetabase } from "@/lib/metabase";
 
 export async function GET() {
   try {
