@@ -173,6 +173,18 @@ interface UserJourney {
    * preenche `pluginActivatedEmails`).
    */
   activatedPlugin: boolean;
+  /**
+   * A conta existe no Postgres mas nunca ganhou telefone.
+   *
+   * Sai do `has_phone` do `account_created` (o evento do backend, que lê a
+   * linha do `user`). Existe porque "Conta criada" enganava: no cadastro por
+   * Google a conta nasce no RETORNO do OAuth, antes da tela que pede WhatsApp,
+   * então quem abandona ali aparecia no funil idêntico a quem terminou.
+   *
+   * Zerado quando a jornada tem telefone em qualquer evento — quem respondeu
+   * depois não é abandono.
+   */
+  contaSemTelefone: boolean;
   gclid?: string;
   fbclid?: string;
   stepsCompleted: Set<string>;
@@ -190,7 +202,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin" | "semWhatsapp";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 type AdvancedFilters = {
@@ -458,6 +470,7 @@ export default function Dashboard() {
           software: "", whatBrought: "", state: null,
           referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "",
           activatedPlugin: false,
+          contaSemTelefone: false,
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -500,6 +513,13 @@ export default function Dashboard() {
         if (m.utm_campaign && !j.utmCampaign) j.utmCampaign = m.utm_campaign;
         if (m.gclid && !j.gclid) j.gclid = String(m.gclid);
         if (m.fbclid && !j.fbclid) j.fbclid = String(m.fbclid);
+        /* Só o `account_created` sabe disso: ele lê a linha do `user` no
+           Postgres. `has_phone === false` explícito, não `!m.has_phone` — os
+           eventos do front não têm o campo, e ausência não é ausência de
+           telefone. */
+        if (ev.event === "account_created" && m.has_phone === false) {
+          j.contaSemTelefone = true;
+        }
         if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
       if (m.platform && !j.platform) j.platform = m.platform;
@@ -522,6 +542,11 @@ export default function Dashboard() {
          dois lados têm. Jornada sem e-mail (só session_id) nunca ativa. */
       j.activatedPlugin = !!j.email && pluginActivatedEmails.has(j.email.toLowerCase());
       if (j.phone) j.state = dddToState(j.phone);
+      /* Telefone em QUALQUER evento desfaz a marca: o `account_created` chega
+         primeiro (nasce com a linha do banco) e quem preencheu o WhatsApp
+         depois não é abandono. Sem isto, todo cadastro por Google ficaria
+         marcado — a conta sempre nasce sem telefone. */
+      if (j.phone) j.contaSemTelefone = false;
       // Apply ICP-based default when crm_stage was never explicitly set in metadata
       if (!explicitCrmStages.has(j.key)) {
         j.crmStage = isIcp(j.software, j.profession) ? "novo" : "nao_qualificado";
@@ -570,6 +595,9 @@ export default function Dashboard() {
   /* Mesma base dos outros cards (signupJourneys) para as porcentagens
      conversarem entre si. */
   const pluginActivatedCount = useMemo(() => signupJourneys.filter(j => j.activatedPlugin).length, [signupJourneys]);
+  /* Conta no banco, telefone nenhum. É o número para acompanhar depois da
+     guarda no `process-google-oauth-return`: ele tem que parar de crescer. */
+  const semWhatsappCount = useMemo(() => signupJourneys.filter(j => j.contaSemTelefone).length, [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -729,6 +757,8 @@ export default function Dashboard() {
           return j.renderCount > 0;
         case "activatedPlugin":
           return j.activatedPlugin;
+        case "semWhatsapp":
+          return j.contaSemTelefone;
         case "icp":
           return isIcp(j.software, j.profession);
         default:
@@ -799,7 +829,7 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
           <MetricCard
             label="Leads ICP"
@@ -835,6 +865,21 @@ export default function Dashboard() {
             }
             color="#f59e0b"
             onClick={() => openDrill("activatedPlugin", "true", "Ativaram no plugin")}
+          />
+          {/* Conta existe no Postgres e nunca ganhou telefone. Vermelho porque
+              é perda, não conquista: no cadastro por Google a conta nasce no
+              retorno do OAuth, antes da tela do WhatsApp, então esta gente
+              aparecia no funil como "Conta criada" igual a quem terminou. */}
+          <MetricCard
+            label="Sem WhatsApp"
+            value={formatNumber(semWhatsappCount)}
+            sub={
+              signupJourneys.length
+                ? `${((100 * semWhatsappCount) / signupJourneys.length).toFixed(1)}% dos cadastros`
+                : "conta criada, telefone nunca informado"
+            }
+            color="#ef4444"
+            onClick={() => openDrill("semWhatsapp", "true", "Conta criada sem WhatsApp")}
           />
         </div>
 
@@ -994,6 +1039,11 @@ export default function Dashboard() {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${(j.utmSource || j.gclid || j.fbclid || j.surface) ? "bg-fuchsia-500/20 text-fuchsia-300" : "bg-gray-600/20 text-gray-400"}`}>
                             {formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface)}
                           </span>
+                          {j.contaSemTelefone && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">
+                              Sem WhatsApp
+                            </span>
+                          )}
                           {j.profession && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                               {PROFESSION_LABELS[j.profession] || j.profession}
@@ -1123,6 +1173,22 @@ export default function Dashboard() {
                     </svg>
                     WhatsApp
                   </a>
+                </div>
+              )}
+
+              {/* O contraponto do bloco acima: aqui não há telefone nenhum, e
+                  isso não é dado faltando — é a etapa que a pessoa não fez. Diz
+                  o que aconteceu em vez de mostrar um traço, que pareceria bug. */}
+              {selectedUser.contaSemTelefone && (
+                <div className="bg-red-500/10 border border-red-700/30 rounded-xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-red-400/80 mb-0.5">
+                    Cadastro incompleto
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    A conta existe no banco, mas o WhatsApp nunca foi informado — a
+                    pessoa saiu antes de terminar. No cadastro por Google a conta
+                    nasce no retorno do login, antes da tela que pede o número.
+                  </div>
                 </div>
               )}
 
