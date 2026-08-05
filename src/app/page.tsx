@@ -185,6 +185,10 @@ interface UserJourney {
    * depois não é abandono.
    */
   contaSemTelefone: boolean;
+  /** O oposto útil: sabemos que o WhatsApp foi informado. Não é `!contaSemTelefone` — jornada sem `account_created` não sabe de nada, e "não sei" não é "confirmou". */
+  contaComTelefone: boolean;
+  /** O `method` atual veio do palpite do backend e pode ser sobreposto pelo front. */
+  methodDoBackend: boolean;
   gclid?: string;
   fbclid?: string;
   stepsCompleted: Set<string>;
@@ -202,7 +206,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin" | "semWhatsapp";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin" | "semWhatsapp" | "comWhatsapp";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 type AdvancedFilters = {
@@ -471,6 +475,8 @@ export default function Dashboard() {
           referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "",
           activatedPlugin: false,
           contaSemTelefone: false,
+          contaComTelefone: false,
+          methodDoBackend: false,
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
           firstSeen: ev.created_at,
@@ -503,7 +509,16 @@ export default function Dashboard() {
            criação da conta), então sem esta ressalva ele roubaria o alvo e o
            excluir passaria a apagar outra linha. */
         if (!j.id && ev.event !== "account_created") j.id = ev.id;
-        if (m.method && !j.method) j.method = m.method;
+        /* O `account_created` deriva o método de `googleId`, que ainda NÃO está
+           gravado no instante em que a conta nasce (no Google ela nasce no
+           retorno do OAuth). Resultado: ele diz "email" para cadastro do Google
+           — e chega primeiro, então ganhava o primeiro-que-vier. O evento do
+           front sabe como a pessoa se autenticou; ele sobrepõe o palpite do
+           backend uma vez, e nunca o contrário. */
+        if (m.method && (!j.method || j.methodDoBackend)) {
+          j.method = m.method;
+          j.methodDoBackend = m.source === "backend";
+        }
         if (m.software && !j.software) j.software = titleCase(String(m.software));
         if (m.what_brought && !j.whatBrought) j.whatBrought = titleCase(String(m.what_brought));
         if (m.referrer && j.referrerDomain === "Direto") j.referrerDomain = extractReferrerDomain(m.referrer);
@@ -519,6 +534,9 @@ export default function Dashboard() {
            telefone. */
         if (ev.event === "account_created" && m.has_phone === false) {
           j.contaSemTelefone = true;
+        }
+        if (ev.event === "account_created" && m.has_phone === true) {
+          j.contaComTelefone = true;
         }
         if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
@@ -546,7 +564,12 @@ export default function Dashboard() {
          primeiro (nasce com a linha do banco) e quem preencheu o WhatsApp
          depois não é abandono. Sem isto, todo cadastro por Google ficaria
          marcado — a conta sempre nasce sem telefone. */
-      if (j.phone) j.contaSemTelefone = false;
+      if (j.phone) { j.contaSemTelefone = false; j.contaComTelefone = true; }
+      /* Uma jornada pode ter DOIS `account_created` — conta apagada e refeita
+         com o mesmo e-mail é o caso comum (teste interno). Se em algum momento
+         houve telefone, a pessoa informou: o positivo ganha, e os dois cards
+         param de somar mais que o total. */
+      if (j.contaComTelefone) j.contaSemTelefone = false;
       // Apply ICP-based default when crm_stage was never explicitly set in metadata
       if (!explicitCrmStages.has(j.key)) {
         j.crmStage = isIcp(j.software, j.profession) ? "novo" : "nao_qualificado";
@@ -598,6 +621,11 @@ export default function Dashboard() {
   /* Conta no banco, telefone nenhum. É o número para acompanhar depois da
      guarda no `process-google-oauth-return`: ele tem que parar de crescer. */
   const semWhatsappCount = useMemo(() => signupJourneys.filter(j => j.contaSemTelefone).length, [signupJourneys]);
+  /* O par positivo do card acima. Os dois NÃO fecham o total de propósito:
+     jornada sem `account_created` e sem telefone em evento nenhum é "não sei",
+     e não sei não é confirmou. A soma abaixo do total é a medida do que falta
+     instrumentar, não um erro de conta. */
+  const comWhatsappCount = useMemo(() => signupJourneys.filter(j => j.contaComTelefone).length, [signupJourneys]);
 
   // ─── Analytics segmentation ────────────────────────────────────────────────
   const analytics = useMemo(() => {
@@ -759,6 +787,8 @@ export default function Dashboard() {
           return j.activatedPlugin;
         case "semWhatsapp":
           return j.contaSemTelefone;
+        case "comWhatsapp":
+          return j.contaComTelefone;
         case "icp":
           return isIcp(j.software, j.profession);
         default:
@@ -829,8 +859,21 @@ export default function Dashboard() {
         </div>
 
         {/* Metric cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
           <MetricCard label="Total de cadastros" value={formatNumber(signupJourneys.length)} sub="no período selecionado" color="#6366f1" onClick={() => openDrill("all", "all", "Total de cadastros")} />
+          {/* Logo depois do total, e verde, porque é o par positivo do card
+              vermelho lá no fim: quem informou o WhatsApp terminou o cadastro. */}
+          <MetricCard
+            label="Confirmaram WhatsApp"
+            value={formatNumber(comWhatsappCount)}
+            sub={
+              signupJourneys.length
+                ? `${((100 * comWhatsappCount) / signupJourneys.length).toFixed(1)}% dos cadastros`
+                : "informaram o número"
+            }
+            color="#22c55e"
+            onClick={() => openDrill("comWhatsapp", "true", "Confirmaram WhatsApp")}
+          />
           <MetricCard
             label="Leads ICP"
             value={formatNumber(icpCount)}
