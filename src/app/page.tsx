@@ -187,6 +187,13 @@ interface UserJourney {
   contaSemTelefone: boolean;
   /** O oposto útil: sabemos que o WhatsApp foi informado. Não é `!contaSemTelefone` — jornada sem `account_created` não sabe de nada, e "não sei" não é "confirmou". */
   contaComTelefone: boolean;
+  /**
+   * Passou pela verificação do WhatsApp e ACERTOU o código (`signup_code_verified`).
+   * Distingue quem foi barrado no fim (número já tinha dono) de quem abandonou:
+   * verificou o código MAS ficou sem telefone no banco = provou posse e foi
+   * recusado pela regra "um número, uma conta", não saiu antes de terminar.
+   */
+  verificouCodigo: boolean;
   /** O `method` atual veio do palpite do backend e pode ser sobreposto pelo front. */
   methodDoBackend: boolean;
   gclid?: string;
@@ -476,6 +483,7 @@ export default function Dashboard() {
           activatedPlugin: false,
           contaSemTelefone: false,
           contaComTelefone: false,
+          verificouCodigo: false,
           methodDoBackend: false,
           stepsCompleted: new Set(),
           lastStep: "", lastStepLabel: "",
@@ -542,6 +550,9 @@ export default function Dashboard() {
       }
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = String(m.phone || m.whatsapp).replace(/\D/g, "");
+      /* FORA do `if` de cadastro de propósito: `signup_code_verified` não está
+         entre os eventos daquele bloco. Marca quem provou posse do número. */
+      if (ev.event === "signup_code_verified") j.verificouCodigo = true;
       if (ev.event === "download") {
         j.downloads.push({ product_name: m.product_name || "", product_brand: m.product_brand || "", product_category: m.product_category || "", date: ev.created_at });
       }
@@ -1219,20 +1230,36 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* O contraponto do bloco acima: aqui não há telefone nenhum, e
-                  isso não é dado faltando — é a etapa que a pessoa não fez. Diz
-                  o que aconteceu em vez de mostrar um traço, que pareceria bug. */}
+              {/* Sem telefone no banco, e o motivo NÃO é único. Quem verificou o
+                  código provou posse e foi barrado no fim (número já tinha dono);
+                  quem não verificou saiu antes. Dizer "saiu antes de terminar"
+                  para quem terminou e foi recusado é acusação falsa. */}
               {selectedUser.contaSemTelefone && (
-                <div className="bg-red-500/10 border border-red-700/30 rounded-xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-red-400/80 mb-0.5">
-                    Cadastro incompleto
+                selectedUser.verificouCodigo ? (
+                  <div className="bg-amber-500/10 border border-amber-600/30 rounded-xl p-3">
+                    <div className="text-[10px] uppercase tracking-wide text-amber-400/80 mb-0.5">
+                      Barrado por número em uso
+                    </div>
+                    <div className="text-sm text-gray-300">
+                      Verificou o WhatsApp por código — mas o número já pertencia a
+                      outra conta, e a regra de um número por conta impediu o
+                      vínculo. Não abandonou: foi recusado no fim.
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-300">
-                    A conta existe no banco, mas o WhatsApp nunca foi informado — a
-                    pessoa saiu antes de terminar. No cadastro por Google a conta
-                    nasce no retorno do login, antes da tela que pede o número.
+                ) : (
+                  <div className="bg-red-500/10 border border-red-700/30 rounded-xl p-3">
+                    <div className="text-[10px] uppercase tracking-wide text-red-400/80 mb-0.5">
+                      Cadastro incompleto
+                    </div>
+                    <div className="text-sm text-gray-300">
+                      A conta existe no banco, mas o WhatsApp nunca foi informado — a
+                      pessoa saiu antes de terminar. A conta é criada antes da tela
+                      que pede o número{selectedUser.method === "google"
+                        ? " (no Google, já no retorno do login)"
+                        : ""}, então fica registrada mesmo sem ele.
+                    </div>
                   </div>
-                </div>
+                )
               )}
 
               {(selectedUser.downloadCount > 0 || selectedUser.renderCount > 0) && (
