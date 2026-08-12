@@ -182,3 +182,54 @@ export async function fetchExperimentReport(
   if (error) throw new Error(`admin_experiment_report: ${error.message}`);
   return data as ExperimentReport;
 }
+
+/* ------------------------------------------------------------------ funil -- */
+
+/** Os degraus do checkout, na ordem. O 1º não é gravado: é a própria exposição. */
+export const FUNNEL_STEPS = [
+  "viu_preco",
+  "abriu_checkout",
+  "escolheu_metodo",
+  "comecou_pagamento",
+  "clicou_pagar",
+  "pagou",
+] as const;
+
+export type FunnelStep = (typeof FUNNEL_STEPS)[number];
+
+export const FUNNEL_LABELS: Record<FunnelStep, string> = {
+  viu_preco: "Viu o preço",
+  abriu_checkout: "Abriu o checkout",
+  escolheu_metodo: "Escolheu como pagar",
+  comecou_pagamento: "Começou a pagar",
+  clicou_pagar: "Mandou cobrar",
+  pagou: "Pagou",
+};
+
+export type ExperimentFunnel = {
+  experiment_key: string;
+  started_at: string | null;
+  is_active: boolean;
+  exposed: Record<string, number>;
+  steps: { arm: string; step: string; users: number }[];
+  by_method: { arm: string; step: string; method: string; users: number }[];
+  last_step: { arm: string; step: string; users: number }[];
+  error?: string;
+};
+
+/**
+ * Onde as pessoas param entre ver o preço e pagar, por braço.
+ *
+ * Mesma base do relatório (só depois do `started_at`, sem conta interna) —
+ * garantido no SQL, porque duas bases diferentes dariam dois denominadores e
+ * ninguém perceberia.
+ */
+export async function fetchExperimentFunnel(
+  experimentKey: string,
+): Promise<ExperimentFunnel> {
+  const { data, error } = await getSubsClient().rpc("admin_experiment_funnel", {
+    p_experiment_key: experimentKey,
+  });
+  if (error) throw new Error(`admin_experiment_funnel: ${error.message}`);
+  return data as ExperimentFunnel;
+}
