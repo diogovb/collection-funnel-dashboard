@@ -1,9 +1,14 @@
 import {
   fetchExperimentCatalog,
+  fetchExperimentFunnel,
   fetchExperimentReport,
+  FUNNEL_LABELS,
+  FUNNEL_STEPS,
   type CatalogPeriod,
   type ExperimentArm,
+  type ExperimentFunnel,
   type ExperimentReport,
+  type FunnelStep,
 } from "@/lib/supabase-subs";
 import {
   bootstrapRatio,
@@ -79,6 +84,15 @@ export default async function ExperimentosPage({ searchParams }: Props) {
   const controle = report.arms.find((a) => a.arm === exp.control_audience);
   const variante = report.arms.find((a) => a.arm === exp.variant_audience);
 
+  /* O funil não pode derrubar a página: ele é diagnóstico, o placar é o
+     produto. Se a RPC falhar, o resto continua de pé. */
+  let funil: ExperimentFunnel | null = null;
+  try {
+    funil = await fetchExperimentFunnel(key);
+  } catch {
+    funil = null;
+  }
+
   return (
     <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-4">
       <Cabecalho report={report} />
@@ -98,6 +112,13 @@ export default async function ExperimentosPage({ searchParams }: Props) {
             variantAudience={exp.variant_audience}
           />
           <Mix controle={controle} variante={variante} />
+          {!!funil && (
+            <Funil
+              funil={funil}
+              controlAudience={exp.control_audience}
+              variantAudience={exp.variant_audience}
+            />
+          )}
           <Retencao report={report} />
         </>
       )}
@@ -781,6 +802,187 @@ function BarraConv({
 }
 
 /* ---------------------------------------------------------------- mix ---- */
+
+/**
+ * Onde as pessoas param entre ver o preço e pagar.
+ *
+ * A pergunta que este bloco existe para responder é uma só: quando um braço
+ * converte menos, ele perde ONDE? Perder na vitrine (não abre o checkout) e
+ * perder no pagamento (abre, escolhe, e some) têm causas opostas — preço alto
+ * demais contra fricção de cobrança — e correções opostas.
+ *
+ * Duas leituras, de propósito:
+ *
+ *  - **% dos expostos** é a acumulada, e é ela que termina na conversão;
+ *  - **passagem** é o degrau anterior → este. O vazamento é uma propriedade do
+ *    DEGRAU, e some na acumulada: uma queda de 90% para 45% no meio parece
+ *    suave quando lida como "45% do topo".
+ *
+ * Desistência não é linha própria: é o que falta para 100% na passagem
+ * seguinte. Não existe evento de abandono aqui, e é assim de propósito — ele
+ * não dispararia justamente para quem fecha a aba.
+ */
+function Funil({
+  funil,
+  controlAudience,
+  variantAudience,
+}: {
+  funil: ExperimentFunnel;
+  controlAudience: string;
+  variantAudience: string;
+}) {
+  const contar = (arm: string, step: FunnelStep): number => {
+    if (step === "viu_preco") return funil.exposed?.[arm] ?? 0;
+    return funil.steps.find((s) => s.arm === arm && s.step === step)?.users ?? 0;
+  };
+
+  const expostos = (arm: string) => funil.exposed?.[arm] ?? 0;
+  const totalDegraus = funil.steps.reduce((s, d) => s + d.users, 0);
+
+  const linhas = FUNNEL_STEPS.map((step, i) => {
+    const a = contar(controlAudience, step);
+    const b = contar(variantAudience, step);
+    const antA = i === 0 ? a : contar(controlAudience, FUNNEL_STEPS[i - 1]);
+    const antB = i === 0 ? b : contar(variantAudience, FUNNEL_STEPS[i - 1]);
+    return {
+      step,
+      a,
+      b,
+      antA,
+      antB,
+      acumA: expostos(controlAudience) ? a / expostos(controlAudience) : 0,
+      acumB: expostos(variantAudience) ? b / expostos(variantAudience) : 0,
+      passA: i === 0 ? 1 : antA ? a / antA : 0,
+      passB: i === 0 ? 1 : antB ? b / antB : 0,
+    };
+  });
+
+  /* O maior vazamento de cada braço: o degrau de pior passagem. É o único
+     número desta tela que vira tarefa.
+     Só entram degraus cujo ANTERIOR teve gente: sem base, a passagem é 0/0 e
+     apontar "0%" ali seria acusar de vazamento um degrau onde ninguém chegou. */
+  const pior = (lado: "A" | "B") => {
+    const comBase = linhas
+      .slice(1)
+      .filter((l) => (lado === "A" ? l.antA : l.antB) > 0);
+    if (!comBase.length) return null;
+    return comBase.reduce((w, l) =>
+      (lado === "A" ? l.passA : l.passB) < (lado === "A" ? w.passA : w.passB) ? l : w,
+    );
+  };
+
+  const piorA = pior("A");
+  const piorB = pior("B");
+
+  const metodo = (arm: string, step: FunnelStep, m: string) =>
+    funil.by_method.find((x) => x.arm === arm && x.step === step && x.method === m)
+      ?.users ?? 0;
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h2 className="text-sm font-semibold text-gray-100">
+          Onde as pessoas param
+        </h2>
+        <span className="text-[11px] text-gray-500">
+          passagem = degrau anterior → este
+        </span>
+      </div>
+
+      {totalDegraus === 0 ? (
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+          Nenhum degrau registrado ainda. Os degraus passam a ser gravados a
+          partir da versão do app com a instrumentação do funil — quem viu o
+          preço antes disso aparece só no topo. Não é erro: é o funil começando
+          a encher.
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-xs min-w-[440px]">
+              <thead>
+                <tr className="text-gray-500 text-[11px]">
+                  <th className="text-left font-normal pb-2">Degrau</th>
+                  <th className="text-right font-normal pb-2">A · controle</th>
+                  <th className="text-right font-normal pb-2 w-20">passagem</th>
+                  <th className="text-right font-normal pb-2">B · variante</th>
+                  <th className="text-right font-normal pb-2 w-20">passagem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={l.step} className="border-t border-gray-800/50">
+                    <td className="py-1.5 text-gray-300">
+                      {FUNNEL_LABELS[l.step]}
+                    </td>
+                    <td className="py-1.5 text-right text-gray-100 tabular-nums">
+                      {l.a}
+                      <span className="text-gray-600 ml-1.5">
+                        {pct(l.acumA)}
+                      </span>
+                    </td>
+                    <td
+                      className={`py-1.5 text-right tabular-nums ${
+                        i > 0 && piorA?.step === l.step
+                          ? "text-amber-400"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      {i === 0 ? "—" : pct(l.passA)}
+                    </td>
+                    <td className="py-1.5 text-right text-gray-100 tabular-nums">
+                      {l.b}
+                      <span className="text-gray-600 ml-1.5">
+                        {pct(l.acumB)}
+                      </span>
+                    </td>
+                    <td
+                      className={`py-1.5 text-right tabular-nums ${
+                        i > 0 && piorB?.step === l.step
+                          ? "text-amber-400"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      {i === 0 ? "—" : pct(l.passB)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {(!!piorA || !!piorB) && (
+            <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+              Maior vazamento —{" "}
+              <span className="text-gray-400">
+                A: {piorA ? FUNNEL_LABELS[piorA.step] : "—"}
+              </span>
+              {" · "}
+              <span className="text-gray-400">
+                B: {piorB ? FUNNEL_LABELS[piorB.step] : "—"}
+              </span>
+              . Se os dois braços vazam no mesmo degrau, o problema é do
+              checkout, não do preço.
+            </p>
+          )}
+
+          <div className="mt-3 pt-3 border-t border-gray-800/50 text-[11px] text-gray-500">
+            Quem escolheu cada meio —{" "}
+            <span className="text-gray-400">
+              A: {metodo(controlAudience, "escolheu_metodo", "pix")} Pix ·{" "}
+              {metodo(controlAudience, "escolheu_metodo", "credit_card")} cartão
+            </span>
+            {" · "}
+            <span className="text-gray-400">
+              B: {metodo(variantAudience, "escolheu_metodo", "pix")} Pix ·{" "}
+              {metodo(variantAudience, "escolheu_metodo", "credit_card")} cartão
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function Mix({
   controle,
