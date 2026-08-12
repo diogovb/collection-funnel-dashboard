@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
+import PluginSection from "@/components/PluginSection";
 
 // ─── DDD → State mapping ────────────────────────────────────────────────────
 const DDD_TO_STATE: Record<string, string> = {
@@ -167,6 +168,16 @@ interface UserJourney {
   /** plugin_sketchup | plugin_revit | web. Ausente no histórico até 03/08. */
   surface: string;
   /**
+   * A superfície vista em eventos que NÃO são de cadastro — `signup_started`,
+   * `signup_code_sent/verified/failed` também a carregam e eram jogadas fora.
+   *
+   * Serve de plano B, nunca de fonte principal: o `account_created` do backend
+   * chega SEM superfície em 91% das contas (só o `POST /user` manda; todo
+   * cadastro que nasce pelo OAuth chega vazio), e sem este plano B a jornada
+   * inteira é rotulada "Site" no card de origem.
+   */
+  surfaceFallback: string;
+  /**
    * Já baixou algo de DENTRO do plugin — independente de onde se cadastrou.
    * É a ativação que o produto persegue: sair da web e ir para o plugin.
    * Não vem do funil; vem do Postgres, cruzado por e-mail (ver o efeito que
@@ -316,8 +327,20 @@ export default function Dashboard() {
   const [userPage, setUserPage] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserJourney | null>(null);
   const [drillFilter, setDrillFilter] = useState<DrillFilter>(null);
-  /** E-mails que já baixaram de dentro do plugin (vem do Postgres). */
-  const [pluginActivatedEmails, setPluginActivatedEmails] = useState<Set<string>>(new Set());
+  /**
+   * Ativação no plugin, com as ressalvas que a rota devolve.
+   *
+   * `total: null` é "não consegui perguntar" — e é diferente de zero. Antes
+   * daqui o erro caía num `catch {}` mudo e o card mostrava 0 e 0,0% com cara
+   * de verdade.
+   */
+  const [pluginActivation, setPluginActivation] = useState<{
+    emails: Set<string>;
+    total: number | null;
+    parcial: boolean;
+    truncado: boolean;
+  }>({ emails: new Set(), total: null, parcial: false, truncado: false });
+  const pluginActivatedEmails = pluginActivation.emails;
   const [view, setView] = useState<"dashboard" | "drillList" | "userDetail">("dashboard");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -378,18 +401,30 @@ export default function Dashboard() {
      segundos e não muda de minuto a minuto. */
   useEffect(() => {
     let cancelado = false;
+    setPluginActivation({ emails: new Set(), total: null, parcial: false, truncado: false });
     (async () => {
       try {
         const res = await fetch(
           `/api/plugin-activation?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
         );
-        if (!res.ok) return;
-        const { emails } = (await res.json()) as { emails?: string[] };
-        if (!cancelado && Array.isArray(emails)) {
-          setPluginActivatedEmails(new Set(emails.map((e) => e.toLowerCase())));
+        if (!res.ok) return; /* fica com total: null → o card mostra "—" */
+        const dados = (await res.json()) as {
+          emails?: string[];
+          total?: number;
+          parcial?: boolean;
+          truncado?: boolean;
+        };
+        if (!cancelado && Array.isArray(dados.emails)) {
+          setPluginActivation({
+            emails: new Set(dados.emails.map((e) => e.toLowerCase())),
+            total: Number(dados.total ?? dados.emails.length),
+            parcial: !!dados.parcial,
+            truncado: !!dados.truncado,
+          });
         }
       } catch {
-        /* sem o card de ativação o dashboard segue inteiro */
+        /* sem o card de ativação o dashboard segue inteiro — mas o card diz
+           que não sabe, em vez de dizer zero. */
       }
     })();
     return () => { cancelado = true; };
@@ -479,7 +514,7 @@ export default function Dashboard() {
           id: "",
           name: "", email: "", profession: "", method: "", platform: "", phone: "",
           software: "", whatBrought: "", state: null,
-          referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "",
+          referrerDomain: "Direto", utmSource: "", utmMedium: "", utmCampaign: "", surface: "", surfaceFallback: "",
           activatedPlugin: false,
           contaSemTelefone: false,
           contaComTelefone: false,
@@ -548,6 +583,10 @@ export default function Dashboard() {
         }
         if (m.crm_stage) { j.crmStage = m.crm_stage as string; explicitCrmStages.add(key); }
       }
+      /* FORA do `if` de cadastro: qualquer evento serve de plano B para a
+         superfície. O evento de cadastro continua tendo prioridade — quem
+         resolve o empate é o laço de fechamento, não a ordem de chegada. */
+      if (m.surface && !j.surfaceFallback) j.surfaceFallback = String(m.surface);
       if (m.platform && !j.platform) j.platform = m.platform;
       if ((m.phone || m.whatsapp) && !j.phone) j.phone = String(m.phone || m.whatsapp).replace(/\D/g, "");
       /* FORA do `if` de cadastro de propósito: `signup_code_verified` não está
@@ -567,6 +606,8 @@ export default function Dashboard() {
     for (const j of map.values()) {
       j.downloadCount = j.downloads.length;
       j.renderCount = j.renders.length;
+      /* O evento de cadastro tem prioridade; o plano B só entra no vazio. */
+      if (!j.surface && j.surfaceFallback) j.surface = j.surfaceFallback;
       /* O cruzamento com o Postgres é por e-mail — é a única chave que os
          dois lados têm. Jornada sem e-mail (só session_id) nunca ativa. */
       j.activatedPlugin = !!j.email && pluginActivatedEmails.has(j.email.toLowerCase());
@@ -629,6 +670,26 @@ export default function Dashboard() {
   /* Mesma base dos outros cards (signupJourneys) para as porcentagens
      conversarem entre si. */
   const pluginActivatedCount = useMemo(() => signupJourneys.filter(j => j.activatedPlugin).length, [signupJourneys]);
+  /**
+   * O que o card pode dizer sem mentir.
+   *
+   * Duas ressalvas moram aqui. (1) Erro de rota vira "—", nunca 0: o gráfico
+   * de um card que caiu é indistinguível de "ninguém ativou". (2) A régua da
+   * ativação — `product_download."scopeId"` — só passou a ser gravada em
+   * 31/07/2026 (antes disso é 100% nula, medido em 11/08). Numa janela que
+   * começa antes, o número é PISO e a porcentagem seria falsa para baixo, então
+   * ela dá lugar ao aviso.
+   */
+  const pluginCardValue =
+    pluginActivation.total === null ? "—" : formatNumber(pluginActivatedCount);
+  const pluginCardSub =
+    pluginActivation.total === null
+      ? "não consegui consultar o banco"
+      : pluginActivation.parcial
+        ? "piso — só comparável a partir de 31/07"
+        : signupJourneys.length
+          ? `${((100 * pluginActivatedCount) / signupJourneys.length).toFixed(1)}% dos cadastros`
+          : "baixaram dentro do plugin";
   /* Conta no banco, telefone nenhum. É o número para acompanhar depois da
      guarda no `process-google-oauth-return`: ele tem que parar de crescer. */
   const semWhatsappCount = useMemo(() => signupJourneys.filter(j => j.contaSemTelefone).length, [signupJourneys]);
@@ -911,12 +972,8 @@ export default function Dashboard() {
               Âmbar de propósito — é a que se olha primeiro. */}
           <MetricCard
             label="Ativou no plugin"
-            value={formatNumber(pluginActivatedCount)}
-            sub={
-              signupJourneys.length
-                ? `${((100 * pluginActivatedCount) / signupJourneys.length).toFixed(1)}% dos cadastros`
-                : "baixaram dentro do plugin"
-            }
+            value={pluginCardValue}
+            sub={pluginCardSub}
             color="#f59e0b"
             onClick={() => openDrill("activatedPlugin", "true", "Ativaram no plugin")}
           />
@@ -936,6 +993,11 @@ export default function Dashboard() {
             onClick={() => openDrill("semWhatsapp", "true", "Conta criada sem WhatsApp")}
           />
         </div>
+
+        {/* O plugin em série semanal. Fica logo abaixo dos cards porque é a
+            pergunta que os cards de janela móvel NÃO conseguem responder: eles
+            misturam coortes, então a porcentagem se mexe sem nada ter mudado. */}
+        <PluginSection />
 
         {/* Segmentation row 1 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
