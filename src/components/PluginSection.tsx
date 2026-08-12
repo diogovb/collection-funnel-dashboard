@@ -20,9 +20,13 @@ import { useEffect, useState } from "react";
 type Semana = {
   semana: string;
   completa: boolean;
-  entraramPlugin: number;
+  /* `null` = NÃO MEDIDO. O `platform` só passou a carimbar valor de plugin em
+     15/06; antes disso um "0" aqui se leria como "ninguém usou o plugin", numa
+     semana que teve 80 mil downloads. As colunas de web não têm essa ressalva:
+     `platform='web'` já era gravado antes. */
+  entraramPlugin: number | null;
   entraramWeb: number;
-  ativaramPlugin: number;
+  ativaramPlugin: number | null;
   ativaramWeb: number;
   cadastrosPlugin: number | null;
   cadastrosWeb: number | null;
@@ -270,8 +274,12 @@ export default function PluginSection() {
                 <td className="py-1.5 text-right">
                   {s.cadastrosPlugin === null ? "—" : nf(s.cadastrosPlugin)}
                 </td>
-                <td className="py-1.5 text-right">{nf(s.entraramPlugin)}</td>
-                <td className="py-1.5 text-right">{nf(s.ativaramPlugin)}</td>
+                <td className="py-1.5 text-right">
+                  {s.entraramPlugin === null ? "—" : nf(s.entraramPlugin)}
+                </td>
+                <td className="py-1.5 text-right">
+                  {s.ativaramPlugin === null ? "—" : nf(s.ativaramPlugin)}
+                </td>
                 <td className="py-1.5 text-right">
                   {s.baixaramInstalador === null ? "—" : nf(s.baixaramInstalador)}
                 </td>
@@ -281,8 +289,10 @@ export default function PluginSection() {
           </tbody>
         </table>
         <p className="text-[11px] text-gray-600 mt-3">
-          “—” é <strong>não medido</strong>, não zero: <code>signup_finish</code> e{" "}
-          <code>plugin_download</code> só entraram no pipeline em 03/08.
+          “—” é <strong>não medido</strong>, não zero. Cada régua tem data de
+          nascimento: <code>signup_finish</code> e <code>plugin_download</code> entraram
+          no pipeline em 03/08, e o <code>platform</code> só passou a carimbar valor de
+          plugin em 15/06.
         </p>
       </div>
     </div>
