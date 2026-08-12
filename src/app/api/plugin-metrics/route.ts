@@ -184,6 +184,18 @@ export async function GET() {
     const instalador = nuloAntesDoPrimeiro(
       linhas.map((l) => n(l.baixaram_instalador)),
     );
+    /* As colunas de PLUGIN também. Faltava: a semana de 08/06 aparecia na tabela
+       com "0" em Entraram e Ativaram, o que se lê como "ninguém usou o plugin" —
+       e naquela semana havia 80 mil downloads acontecendo. O que não existia era
+       o carimbo `platform` com valor de plugin. É exatamente o "zero que não é
+       zero" que esta rota inteira existe para não cometer.
+
+       As colunas de WEB ficam cruas de propósito: `platform='web'` já era
+       gravado desde antes (2.415 pessoas na mesma semana de 08/06), então
+       aquele número é medição de verdade. */
+    const ativaramPlugin = nuloAntesDoPrimeiro(
+      linhas.map((l) => n(l.ativaram_plugin)),
+    );
 
     return NextResponse.json({
       atualizadoEm: new Date().toISOString(),
@@ -191,9 +203,9 @@ export async function GET() {
       semanas: linhas.map((l, i) => ({
         semana: l.semana,
         completa: semanaCompleta(l.semana),
-        entraramPlugin: n(l.entraram_plugin),
+        entraramPlugin: comPlatform[i],
         entraramWeb: n(l.entraram_web),
-        ativaramPlugin: n(l.ativaram_plugin),
+        ativaramPlugin: ativaramPlugin[i],
         ativaramWeb: n(l.ativaram_web),
         cadastrosPlugin: cadastrosPlugin[i],
         cadastrosWeb: cadastrosWeb[i],
