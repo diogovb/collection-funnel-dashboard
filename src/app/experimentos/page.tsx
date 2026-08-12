@@ -600,16 +600,30 @@ function BreakEven({
     );
     if (!pC || !pV || pV.price_full_cents <= 0) continue;
 
+    /* Denominador é TODO exposto, não só o maduro.
+       `by_period` conta todos os compradores, então dividir por `mature`
+       misturava numerador e denominador de recortes diferentes — com o teste
+       recém-ligado, `mature` é zero e a barra da variante mostrava 0,0%
+       enquanto o cartão logo acima já dizia 3 compradores. Duas leituras
+       contraditórias na mesma tela.
+       A taxa sai SUBESTIMADA enquanto a janela de atribuição não fecha (parte
+       da gente ainda vai comprar), mas subestima os dois braços igual — então
+       a comparação, que é o assunto deste bloco, continua de pé. O aviso logo
+       abaixo do título diz isso. */
     const convC =
-      controle.mature > 0 ? compradoresDe(controle, meses) / controle.mature : 0;
+      controle.exposed > 0
+        ? compradoresDe(controle, meses) / controle.exposed
+        : 0;
     const convV =
-      variante.mature > 0 ? compradoresDe(variante, meses) / variante.mature : 0;
+      variante.exposed > 0
+        ? compradoresDe(variante, meses) / variante.exposed
+        : 0;
     /* O fator: quanto o preço encolheu é quanto a conversão precisa crescer. */
     const fator = pC.price_full_cents / pV.price_full_cents;
     const meta = convC * fator;
     const faltam = Math.max(
       0,
-      Math.ceil(meta * variante.mature) - compradoresDe(variante, meses),
+      Math.ceil(meta * variante.exposed) - compradoresDe(variante, meses),
     );
     linhas.push({
       nome,
@@ -625,15 +639,29 @@ function BreakEven({
 
   if (!linhas.length) return null;
 
+  /* Alguém ainda não cumpriu a janela de atribuição nos dois braços. */
+  const janelaAberta =
+    controle.mature < controle.exposed || variante.mature < variante.exposed;
+
   return (
     <div className={CARD}>
       <h3 className="text-sm font-medium text-gray-200">
         Conversão contra o empate, por produto
       </h3>
-      <p className="text-xs text-gray-500 mt-1 mb-4">
+      <p className="text-xs text-gray-500 mt-1">
         Converter mais não é vencer: com preço menor, a variante precisa de mais
         compradores só para chegar à mesma receita.
       </p>
+      {janelaAberta && (
+        /* Sem este aviso, as porcentagens parecem baixas "de verdade" — e são
+           baixas só porque parte de quem viu o preço ainda vai comprar. */
+        <p className="text-[11px] text-amber-300/70 mt-1">
+          Parcial: parte de quem viu o preço ainda está dentro da janela de
+          atribuição, então as duas taxas estão subestimadas. Como estão
+          subestimadas igual nos dois lados, a comparação já vale.
+        </p>
+      )}
+      <div className="mb-4" />
       <div className="space-y-5">
         {linhas.map((l) => (
           <LinhaBreakEven key={l.nome} l={l} />
