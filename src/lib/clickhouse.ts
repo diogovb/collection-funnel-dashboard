@@ -36,12 +36,27 @@ export class ClickHouseError extends Error {
   }
 }
 
+/**
+ * Lê a env tirando aspas que vieram junto no copiar-e-colar.
+ *
+ * No `.env` do backend — que é de onde estes quatro valores saem — eles estão
+ * escritos COM aspas (`CLICKHOUSE_URL="https://…"`). O dotenv tira; o painel da
+ * Vercel, não: lá o campo é literal e a aspa vira parte do valor. O estrago é
+ * desproporcional ao erro — `new URL('"https://…"')` lança "Invalid URL", e a
+ * senha com aspas dá 401 do ClickHouse, dois sintomas que não apontam para a
+ * causa. Aparar aqui custa uma linha e mata a classe inteira.
+ */
+function env(nome: string): string | undefined {
+  const bruto = process.env[nome];
+  if (!bruto) return undefined;
+  /* Sem a flag `s`: o target deste tsconfig é anterior a es2018 e o compilador
+     recusa (TS1501). Valor de env com quebra de linha no meio não é caso real. */
+  const limpo = bruto.trim().replace(/^(['"])(.*)\1$/, "$2");
+  return limpo || undefined;
+}
+
 export function clickhouseConfigurado(): boolean {
-  return Boolean(
-    process.env.CLICKHOUSE_URL &&
-      process.env.CLICKHOUSE_USER &&
-      process.env.CLICKHOUSE_PASSWORD,
-  );
+  return Boolean(env("CLICKHOUSE_URL") && env("CLICKHOUSE_USER") && env("CLICKHOUSE_PASSWORD"));
 }
 
 /** Teto no servidor, para consulta pesada morrer lá e não pendurar a rota. */
@@ -52,8 +67,11 @@ export async function chQuery<T = Record<string, unknown>>(
 ): Promise<T[]> {
   if (!clickhouseConfigurado()) throw new ClickHouseNaoConfigurado();
 
-  const url = new URL(process.env.CLICKHOUSE_URL as string);
-  url.searchParams.set("database", process.env.CLICKHOUSE_DB || "default");
+  const url = new URL(env("CLICKHOUSE_URL") as string);
+  /* Fallback `collection`, e não `default`: a base padrão do ClickHouse não tem
+     `events_distributed`, então esquecer a env daria "tabela não existe" — erro
+     verdadeiro, mas que manda procurar no lugar errado. */
+  url.searchParams.set("database", env("CLICKHOUSE_DB") || "collection");
   url.searchParams.set("max_execution_time", String(MAX_EXECUTION_SECONDS));
 
   /* `FORMAT JSON` entra aqui para o chamador não precisar lembrar. */
@@ -62,7 +80,7 @@ export async function chQuery<T = Record<string, unknown>>(
     : `${sql.trim().replace(/;\s*$/, "")} FORMAT JSON`;
 
   const auth = Buffer.from(
-    `${process.env.CLICKHOUSE_USER}:${process.env.CLICKHOUSE_PASSWORD}`,
+    `${env("CLICKHOUSE_USER")}:${env("CLICKHOUSE_PASSWORD")}`,
   ).toString("base64");
 
   let res: Response;
