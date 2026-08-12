@@ -8,6 +8,7 @@ import {
   WEB,
   prop,
 } from "@/lib/clickhouse";
+import { getSubsClient } from "@/lib/supabase-subs";
 
 /**
  * As três perguntas do plugin, em série semanal comparável.
@@ -32,8 +33,13 @@ export const maxDuration = 60;
 
 /** Quantas semanas a série cobre. */
 const SEMANAS = 10;
-/** O ClickHouse guarda a primeira semana com `platform` a partir daqui. */
-const INICIO = "2026-06-08";
+/**
+ * Piso da série. O `platform` de plugin começou a ser gravado em 28/05, mas
+ * **ficou zerado de 03/06 a 16/06** — um apagão de 14 dias descoberto em 12/08.
+ * A guarda de dia cego (ver `sqlDiasVivos`) trata o buraco onde quer que ele
+ * esteja; este piso só evita puxar dado anterior ao carimbo existir.
+ */
+const INICIO = "2026-05-28";
 
 type LinhaSemana = {
   semana: string;
@@ -44,13 +50,6 @@ type LinhaSemana = {
   cadastros_plugin: string;
   cadastros_web: string;
   baixaram_instalador: string;
-};
-
-type LinhaCoorte = {
-  coorte: string;
-  novos: string;
-  foram_ao_plugin: string;
-  plugin_48h: string;
 };
 
 function inicioDaSerie(): string {
@@ -83,35 +82,47 @@ GROUP BY semana ORDER BY semana`;
 }
 
 /**
- * A série que responde "está crescendo?": dos usuários vistos pela PRIMEIRA
- * vez na semana W, quantos apareceram no plugin em 48h.
+ * O instante do PRIMEIRO toque de cada pessoa no plugin.
  *
- * Coorte fechada em 48h para as semanas serem comparáveis entre si — a taxa
- * "algum dia" favorece coorte velha, que teve mais tempo. Por isso também o
- * `d0 < today() - 2`: semana que ainda não completou 48h não entra.
+ * Uma linha por pessoa (~8 mil na janela de 10 semanas). Quem cruza com a data
+ * de cadastro é o Node, porque as duas pontas moram em bancos diferentes: o
+ * evento no ClickHouse, a conta no Supabase de assinaturas.
  *
- * `minIf` sem linha que casa devolve o default do tipo (1970-01-01); o
- * `> toDate('1971-01-01')` é o teste de "nunca foi ao plugin".
- *
- * O lookback do subselect é maior que a série para que "primeira vez" não
- * confunda usuário antigo com usuário novo na borda da janela.
+ * ⚠️ Este cruzamento existe por causa de um erro real que esta rota cometia.
+ * A versão anterior definia a coorte como "primeira vez que a pessoa aparece
+ * nos eventos", e isso NÃO é cadastro: quem já tinha conta e só voltou a logar
+ * entrava como "usuário novo" — e essa gente abre o plugin muito mais que um
+ * recém-cadastrado. O número saía inflado (33% onde a verdade era 8,5%) e,
+ * pior, inflado de forma DESIGUAL entre as semanas, desenhando uma queda que
+ * não existia. Só a data de criação da conta responde "de quem se cadastrou".
  */
-function sqlCoortes(desde: string, lookback: string): string {
+function sqlPrimeiroToqueNoPlugin(desde: string): string {
   return `
-SELECT toMonday(d0)                                                AS coorte,
-       count()                                                     AS novos,
-       countIf(d_plug > toDate('1971-01-01'))                      AS foram_ao_plugin,
-       countIf(d_plug > toDate('1971-01-01') AND d_plug <= d0 + 2) AS plugin_48h
-FROM (
-  SELECT user_id,
-         min(event_date)                     AS d0,
-         minIf(event_date, ${PLUGIN})        AS d_plug
-  FROM events_distributed
-  WHERE user_id != '' AND event_date >= ${chDate(lookback)}
-  GROUP BY user_id
-)
-WHERE d0 >= ${chDate(desde)} AND d0 < today() - 2
-GROUP BY coorte ORDER BY coorte`;
+SELECT user_id,
+       toUnixTimestamp64Milli(min(timestamp)) AS ms
+FROM events_distributed
+WHERE user_id != '' AND event_date >= ${chDate(desde)} AND ${PLUGIN}
+GROUP BY user_id`;
+}
+
+/**
+ * Em que dias a telemetria de plugin esteve VIVA.
+ *
+ * Não é preciosismo: entre **03/06 e 16/06 de 2026 o carimbo de plugin ficou
+ * zerado por 14 dias** enquanto a web continuou sendo gravada normalmente. Uma
+ * coorte cuja janela de 48h cai nesse buraco mede 0% e parece comportamento.
+ *
+ * A regra é auto-corretiva: dia com evento no ar e ZERO pessoa no plugin é dia
+ * cego. Se o apagão se repetir, a série se protege sozinha.
+ */
+function sqlDiasVivos(desde: string): string {
+  return `
+SELECT toString(event_date)          AS dia,
+       uniqIf(user_id, ${PLUGIN})    AS plugin,
+       count()                       AS eventos
+FROM events_distributed
+WHERE event_date >= ${chDate(desde)}
+GROUP BY dia ORDER BY dia`;
 }
 
 const n = (v: string | number | undefined) => Number(v ?? 0);
@@ -137,6 +148,115 @@ function nuloAntesDoPrimeiro(valores: number[]): (number | null)[] {
   return valores.map((v, i) => (i < primeiro ? null : v));
 }
 
+const H48 = 48 * 3600 * 1000;
+
+/** Segunda-feira (UTC) da semana em que a data cai. */
+function segundaDaSemana(iso: string): string {
+  const d = new Date(iso);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Os cadastros de verdade: uma linha por conta criada, com a data.
+ *
+ * Vem do Supabase de ASSINATURAS (o mesmo cliente que a aba de experimentos já
+ * usa), e não do funil — o `funnel_events` guarda o id do LEGADO, que não casa
+ * com o `user_id` do ClickHouse. O que casa é o id do Supabase.
+ */
+async function buscarCadastros(
+  desde: string,
+): Promise<{ id: string; created_at: string }[]> {
+  const sb = getSubsClient();
+  const PAGINA = 1000; /* teto do PostgREST; passar disso é cortado em silêncio */
+  const todos: { id: string; created_at: string }[] = [];
+  for (let p = 0; p < 60; p += 1) {
+    const { data, error } = await sb
+      .from("profiles")
+      .select("id, created_at")
+      .gte("created_at", `${desde}T00:00:00Z`)
+      .order("created_at", { ascending: true })
+      .range(p * PAGINA, (p + 1) * PAGINA - 1);
+    if (error) throw new Error(`profiles: ${error.message}`);
+    const lote = data ?? [];
+    todos.push(...(lote as { id: string; created_at: string }[]));
+    if (lote.length < PAGINA) break;
+  }
+  return todos;
+}
+
+/**
+ * A partir da segunda-feira, algum dos próximos `dias` ficou sem telemetria?
+ *
+ * `dias = 7` para a tabela semanal (a semana em si). `dias = 9` para a coorte:
+ * são os 7 da semana MAIS os 2 de janela de quem se cadastrou no último dia.
+ */
+function temDiaCego(segunda: string, cegos: Set<string>, dias: number): boolean {
+  const base = new Date(`${segunda}T00:00:00.000Z`);
+  for (let i = 0; i < dias; i += 1) {
+    const d = new Date(base);
+    d.setUTCDate(base.getUTCDate() + i);
+    if (cegos.has(d.toISOString().slice(0, 10))) return true;
+  }
+  return false;
+}
+
+/** Os dias em que houve evento no ar e ZERO pessoa carimbada como plugin. */
+function diasCegos(dias: { dia: string; plugin: string; eventos: string }[]) {
+  return new Set(
+    dias.filter((d) => n(d.eventos) > 0 && n(d.plugin) === 0).map((d) => d.dia),
+  );
+}
+
+/**
+ * De cada turma de cadastro, quantos abriram o plugin em até 48h.
+ *
+ * As 48h fecham a janela no mesmo tamanho para todas as semanas — sem isso, a
+ * semana mais velha ganha só por ter tido mais tempo de eventualmente instalar.
+ */
+function montarCoortes(
+  cadastros: { id: string; created_at: string }[],
+  toques: { user_id: string; ms: string }[],
+  dias: { dia: string; plugin: string; eventos: string }[],
+) {
+  const primeiroToque = new Map(toques.map((t) => [t.user_id, Number(t.ms)]));
+  const cegos = diasCegos(dias);
+
+  const agora = Date.now();
+  const acc = new Map<string, { novos: number; em48h: number; algumDia: number }>();
+  for (const c of cadastros) {
+    const nasceu = Date.parse(c.created_at);
+    if (!Number.isFinite(nasceu)) continue;
+    /* Quem se cadastrou há menos de 48h ainda pode chegar: fora da conta. */
+    if (agora - nasceu < H48) continue;
+    const k = segundaDaSemana(c.created_at);
+    const s = acc.get(k) ?? { novos: 0, em48h: 0, algumDia: 0 };
+    s.novos += 1;
+    const t = primeiroToque.get(c.id);
+    if (t !== undefined) {
+      s.algumDia += 1;
+      if (t - nasceu <= H48) s.em48h += 1;
+    }
+    acc.set(k, s);
+  }
+
+  return [...acc.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([coorte, s]) => {
+      const medivel = !temDiaCego(coorte, cegos, 9);
+      return {
+        coorte,
+        /* Semana do cadastro ainda em curso: a turma não está completa e o
+           denominador cresce até domingo. Serve para olhar, não para comparar. */
+        completa: semanaCompleta(coorte),
+        novos: s.novos,
+        foramAoPlugin: medivel ? s.algumDia : null,
+        pluginEm48h: medivel ? s.em48h : null,
+        pct: medivel && s.novos ? (100 * s.em48h) / s.novos : null,
+      };
+    });
+}
+
 /** Semana que ainda não fechou some da comparação — está sempre "perdendo". */
 function semanaCompleta(segunda: string): boolean {
   const fim = new Date(`${segunda}T00:00:00.000Z`);
@@ -156,13 +276,14 @@ export async function GET() {
   }
 
   const desde = inicioDaSerie();
-  const lookback = "2026-05-01";
 
   try {
-    /* Em paralelo: cada uma leva ~6s no volume atual. */
-    const [linhas, coortes] = await Promise.all([
+    /* Em paralelo: cada consulta leva ~6s no volume atual. */
+    const [linhas, toques, dias, cadastros] = await Promise.all([
       chQuery<LinhaSemana>(sqlSemanas(desde)),
-      chQuery<LinhaCoorte>(sqlCoortes(desde, lookback)),
+      chQuery<{ user_id: string; ms: string }>(sqlPrimeiroToqueNoPlugin(desde)),
+      chQuery<{ dia: string; plugin: string; eventos: string }>(sqlDiasVivos(desde)),
+      buscarCadastros(desde),
     ]);
 
     /**
@@ -172,8 +293,16 @@ export async function GET() {
      * que lido de cima para baixo desenha um crescimento inventado. O corte
      * sai da própria série, pela mesma régua dos 5% do pico.
      */
-    const entraram = linhas.map((l) => n(l.entraram_plugin));
-    const comPlatform = nuloAntesDoPrimeiro(entraram);
+    /* A MESMA guarda de dia cego da coorte, aplicada à tabela: a semana de
+       15/06 tinha 5 dos 7 dias com telemetria e mostrava 3.125 contra ~4.000
+       das vizinhas — parecia queda de uso e era buraco de medição. Aqui bastam
+       os 7 dias da própria semana. */
+    const cegos = diasCegos(dias);
+    const semanaMedivel = (s: string) => !temDiaCego(s, cegos, 7);
+    const soMedivel = (valores: number[]) =>
+      valores.map((v, i) => (semanaMedivel(linhas[i].semana) ? v : null));
+
+    const comPlatform = soMedivel(linhas.map((l) => n(l.entraram_plugin)));
     const primeiraSemanaMedida =
       linhas.find((_, i) => comPlatform[i] !== null)?.semana ?? null;
 
@@ -193,9 +322,7 @@ export async function GET() {
        As colunas de WEB ficam cruas de propósito: `platform='web'` já era
        gravado desde antes (2.415 pessoas na mesma semana de 08/06), então
        aquele número é medição de verdade. */
-    const ativaramPlugin = nuloAntesDoPrimeiro(
-      linhas.map((l) => n(l.ativaram_plugin)),
-    );
+    const ativaramPlugin = soMedivel(linhas.map((l) => n(l.ativaram_plugin)));
 
     return NextResponse.json({
       atualizadoEm: new Date().toISOString(),
@@ -212,15 +339,7 @@ export async function GET() {
         baixaramInstalador: instalador[i],
       })),
       primeiraSemanaMedida,
-      coortes: coortes
-        .filter((c) => !primeiraSemanaMedida || c.coorte >= primeiraSemanaMedida)
-        .map((c) => ({
-          coorte: c.coorte,
-          novos: n(c.novos),
-          foramAoPlugin: n(c.foram_ao_plugin),
-          pluginEm48h: n(c.plugin_48h),
-          pct: n(c.novos) ? (100 * n(c.plugin_48h)) / n(c.novos) : 0,
-        })),
+      coortes: montarCoortes(cadastros, toques, dias),
     });
   } catch (error) {
     console.error("Erro em plugin-metrics:", error);

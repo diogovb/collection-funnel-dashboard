@@ -34,11 +34,16 @@ type Semana = {
 };
 
 type Coorte = {
+  /** Segunda-feira da semana em que a CONTA foi criada. */
   coorte: string;
+  /** Semana do cadastro já fechou? Em curso, o denominador ainda cresce. */
+  completa: boolean;
+  /** Contas criadas naquela semana. */
   novos: number;
-  foramAoPlugin: number;
-  pluginEm48h: number;
-  pct: number;
+  /** `null` = semana cuja janela de 48h cai num apagão da telemetria. */
+  foramAoPlugin: number | null;
+  pluginEm48h: number | null;
+  pct: number | null;
 };
 
 type Resposta = {
@@ -149,9 +154,15 @@ export default function PluginSection() {
   const fechadas = dados.semanas.filter((s) => s.completa);
   const ultima = fechadas.at(-1) ?? null;
   const penultima = fechadas.at(-2) ?? null;
-  const coorteUlt = dados.coortes.at(-1) ?? null;
-  const coortePen = dados.coortes.at(-2) ?? null;
-  const picoCoorte = Math.max(...dados.coortes.map((c) => c.pct), 1);
+  /* Semana sem medição não pode virar o número grande do topo nem a régua das
+     barras — ela não é "0%", é "não sei". */
+  const medidas = dados.coortes.filter((c) => c.pct != null);
+  /* O número grande sai da última semana FECHADA e medida: a semana em curso
+     tem denominador pela metade e viraria manchete por acidente. */
+  const fechadasMedidas = medidas.filter((c) => c.completa);
+  const coorteUlt = fechadasMedidas.at(-1) ?? null;
+  const coortePen = fechadasMedidas.at(-2) ?? null;
+  const picoCoorte = Math.max(...medidas.map((c) => c.pct as number), 1);
 
   return (
     <div className="space-y-4">
@@ -203,43 +214,51 @@ export default function PluginSection() {
       <div className="bg-gray-900/50 rounded-2xl p-4 border border-gray-800/50">
         <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
           <h3 className="text-sm font-semibold text-gray-300">
-            Novos usuários que chegaram ao plugin em 48h
+            De quem CRIOU CONTA na semana, quantos abriram o plugin em 48h
           </h3>
           <span className="text-[11px] text-gray-500">
-            coorte fechada — semana velha teve mais tempo, então a taxa é sempre em 48h
+            cada linha é a semana do cadastro, não a semana de uso
           </span>
         </div>
 
-        {coorteUlt && (
+        {coorteUlt?.pct != null && (
           <div className="flex items-baseline gap-3 mb-4">
             <span className="text-3xl font-bold tabular-nums">
               {coorteUlt.pct.toFixed(1)}%
             </span>
             <Delta atual={coorteUlt.pct} anterior={coortePen?.pct ?? null} />
             <span className="text-xs text-gray-500">
-              {nf(coorteUlt.pluginEm48h)} de {nf(coorteUlt.novos)} · semana de{" "}
-              {diaMes(coorteUlt.coorte)}
+              {nf(coorteUlt.pluginEm48h ?? 0)} de {nf(coorteUlt.novos)} contas criadas
+              na semana de {diaMes(coorteUlt.coorte)}
             </span>
           </div>
         )}
 
         <div className="space-y-2">
           {dados.coortes.map((c) => (
-            <div key={c.coorte} className="flex items-center gap-3 text-xs">
+            <div
+              key={c.coorte}
+              className={`flex items-center gap-3 text-xs ${c.completa ? "" : "opacity-50"}`}
+            >
               <span className="w-12 shrink-0 text-gray-500 tabular-nums">
                 {diaMes(c.coorte)}
+                {!c.completa && <span className="ml-1 text-[10px]">em curso</span>}
               </span>
               <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-indigo-500 transition-all duration-700"
-                  style={{ width: `${(100 * c.pct) / picoCoorte}%` }}
-                />
+                {c.pct != null && (
+                  <div
+                    className="h-full rounded-full bg-indigo-500 transition-all duration-700"
+                    style={{ width: `${(100 * c.pct) / picoCoorte}%` }}
+                  />
+                )}
               </div>
               <span className="w-12 shrink-0 text-right font-medium text-gray-200 tabular-nums">
-                {c.pct.toFixed(1)}%
+                {c.pct == null ? "—" : `${c.pct.toFixed(1)}%`}
               </span>
-              <span className="w-28 shrink-0 text-right text-gray-500 tabular-nums">
-                {nf(c.pluginEm48h)} de {nf(c.novos)}
+              <span className="w-32 shrink-0 text-right text-gray-500 tabular-nums">
+                {c.pct == null
+                  ? `${nf(c.novos)} contas · sem medição`
+                  : `${nf(c.pluginEm48h ?? 0)} de ${nf(c.novos)}`}
               </span>
             </div>
           ))}
