@@ -53,6 +53,14 @@ export type ExperimentArm = {
   revenue_all_cents: number;
   /** Tentativa de compra que não virou receita, por status. */
   discarded: { status: string; attempts: number; cents: number }[];
+  /**
+   * À vista (1×) × parcelado (2×+).
+   *
+   * Nasce com o anual de dois preços: 1× paga o à vista e 12× paga a tabela, e
+   * a diferença é de R$ 120 por venda. Sem esta quebra, "converteu X%" não diz
+   * quanta receita entrou.
+   */
+  by_installments: { faixa: string; buyers: number; revenue_cents: number }[];
   /** Receita por pessoa, agrupada. Permite bootstrap exato sem baixar linhas. */
   value_histogram: { cents: number; users: number }[];
   by_period: {
@@ -117,6 +125,12 @@ export type CatalogPeriod = {
   plan_id: string;
   duration_months: number | null;
   price_full_cents: number;
+  /**
+   * Preço FINAL à vista (Pix ou cartão 1×). `null` = o período tem um preço só.
+   * Quando existe, `price_full_cents` passa a ser o preço de TABELA/parcelado,
+   * e a régua de break-even vira uma FAIXA em vez de um número.
+   */
+  price_cash_cents: number | null;
 };
 
 /**
@@ -132,12 +146,21 @@ export async function fetchExperimentCatalog(
 ): Promise<CatalogPeriod[]> {
   const { data, error } = await getSubsClient()
     .from("billing_periods")
-    .select("slug, audience, plan_id, duration_months, price_full_cents")
+    .select(
+      "slug, audience, plan_id, duration_months, price_full_cents, price_cash_cents",
+    )
     .in("audience", audiences)
     /* SEM filtro de `is_active`: as linhas da variante nascem desligadas de
        propósito, e a régua de break-even precisa existir ANTES do flip — é
        ela que mostra o que o teste vai ter que provar. */
-    .eq("visible_for_purchase", true);
+    .eq("visible_for_purchase", true)
+    /* Ordenação EXPLÍCITA: quem consome faz `.find()` por duração, e sem
+       `order` o Postgres não promete ordem nenhuma. Hoje há uma linha por
+       duração e por braço, então não muda nada — mas no dia em que houver
+       duas, a régua mudaria de valor entre dois refreshes, sem erro nenhum.
+       Uma linha apaga a categoria inteira do bug. */
+    .order("display_order", { ascending: true })
+    .order("slug", { ascending: true });
   if (error) return [];
   const todos = (data ?? []) as CatalogPeriod[];
   const planosDaVariante = new Set(

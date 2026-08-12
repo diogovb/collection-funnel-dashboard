@@ -1,6 +1,7 @@
 import {
   fetchExperimentCatalog,
   fetchExperimentReport,
+  type CatalogPeriod,
   type ExperimentArm,
   type ExperimentReport,
 } from "@/lib/supabase-subs";
@@ -560,12 +561,10 @@ function BreakEven({
 }: {
   controle: ExperimentArm;
   variante: ExperimentArm;
-  catalogo: {
-    slug: string;
-    audience: string;
-    duration_months: number | null;
-    price_full_cents: number;
-  }[];
+  /* O tipo do catálogo, e não uma cópia estrutural: a cópia já deixou passar
+     `price_cash_cents` em silêncio, e é justamente o campo que faz a régua
+     virar faixa. */
+  catalogo: CatalogPeriod[];
   controlAudience: string;
   variantAudience: string;
 }) {
@@ -576,9 +575,14 @@ function BreakEven({
 
   type Linha = {
     nome: string;
-    fator: number;
+    /** Menor e maior queda de preço, conforme o caminho de pagamento. */
+    fatorMin: number;
+    fatorMax: number;
     precoC: number;
+    /** Tabela/parcelado da variante. */
     precoV: number;
+    /** À vista da variante; igual a `precoV` quando o SKU tem um preço só. */
+    precoVaVista: number;
     convC: number;
     convV: number;
     meta: number;
@@ -618,16 +622,25 @@ function BreakEven({
       variante.exposed > 0
         ? compradoresDe(variante, meses) / variante.exposed
         : 0;
-    /* O fator: quanto o preço encolheu é quanto a conversão precisa crescer. */
-    const fator = pC.price_full_cents / pV.price_full_cents;
-    const meta = convC * fator;
+    /* O fator: quanto o preço encolheu é quanto a conversão precisa crescer.
+       Com DOIS preços na variante ele deixa de ser um número. Dizer só
+       697/588 = 1,19× seria propaganda: quem paga à vista paga 468, e a queda
+       real vai a 1,49×. A meta desenhada é a do extremo CONSERVADOR — este
+       bloco existe para impedir vitória declarada cedo, então na dúvida ele
+       puxa para o lado que exige mais. */
+    const aVistaV = pV.price_cash_cents ?? pV.price_full_cents;
+    const fatorMin = pC.price_full_cents / pV.price_full_cents;
+    const fatorMax = pC.price_full_cents / aVistaV;
+    const meta = convC * Math.max(fatorMin, fatorMax);
     const faltam = Math.max(
       0,
       Math.ceil(meta * variante.exposed) - compradoresDe(variante, meses),
     );
     linhas.push({
       nome,
-      fator,
+      fatorMin,
+      fatorMax,
+      precoVaVista: aVistaV,
       precoC: pC.price_full_cents,
       precoV: pV.price_full_cents,
       convC,
@@ -676,15 +689,19 @@ function LinhaBreakEven({
 }: {
   l: {
     nome: string;
-    fator: number;
+    fatorMin: number;
+    fatorMax: number;
     precoC: number;
     precoV: number;
+    precoVaVista: number;
     convC: number;
     convV: number;
     meta: number;
     faltam: number;
   };
 }) {
+  /* O SKU publica dois preços? Então preço e fator viram faixa. */
+  const doisPrecos = l.precoVaVista !== l.precoV;
   /* Escala comum às duas barras e à meta, senão a comparação visual mente. */
   const escala = Math.max(l.meta, l.convC, l.convV, 0.0001) * 1.2;
   const largura = (v: number) => `${Math.min(100, (v / escala) * 100)}%`;
@@ -696,11 +713,19 @@ function LinhaBreakEven({
         <span className="text-gray-300">
           {l.nome}{" "}
           <span className="text-gray-600">
-            {brl(l.precoC)} → {brl(l.precoV)}
+            {brl(l.precoC)} →{" "}
+            {doisPrecos
+              ? `${brl(l.precoVaVista)}–${brl(l.precoV)}`
+              : brl(l.precoV)}
           </span>
         </span>
         <span className="text-gray-500 whitespace-nowrap">
-          precisa de <span className="text-gray-300">{l.fator.toFixed(2)}×</span>{" "}
+          precisa de{" "}
+          <span className="text-gray-300">
+            {doisPrecos
+              ? `${l.fatorMin.toFixed(2)}×–${l.fatorMax.toFixed(2)}×`
+              : `${l.fatorMin.toFixed(2)}×`}
+          </span>{" "}
           a conversão
         </span>
       </div>
@@ -777,7 +802,23 @@ function Mix({
     const cartao = arm.by_method
       .filter((m) => m.method !== "pix")
       .reduce((s, m) => s + m.buyers, 0);
-    return { anual, mensal, pix, cartao };
+    /* À vista × parcelado, e em RECEITA, não em gente: é aqui que os dois
+       preços do mesmo SKU aparecem. Duas vendas anuais podem valer R$ 936 ou
+       R$ 1.176 dependendo desta quebra, e a contagem de compradores não
+       distingue as duas coisas. Tolerante ao campo ausente para a página
+       sobreviver a uma RPC mais velha. */
+    const faixa = (nome: string) =>
+      (arm.by_installments ?? [])
+        .filter((i) => i.faixa === nome)
+        .reduce((s, i) => s + i.revenue_cents, 0);
+    return {
+      anual,
+      mensal,
+      pix,
+      cartao,
+      aVistaCents: faixa("a_vista"),
+      parceladoCents: faixa("parcelado"),
+    };
   };
   const c = linhas(controle);
   const v = linhas(variante);
@@ -821,6 +862,43 @@ function Mix({
         <Barra a={c.pix} b={c.cartao} ra="pix" rb="cartão" />
         <p className="text-[11px] text-gray-500 mt-3 mb-2">Variante</p>
         <Barra a={v.pix} b={v.cartao} ra="pix" rb="cartão" />
+      </div>
+      {(c.aVistaCents + c.parceladoCents + v.aVistaCents + v.parceladoCents) >
+        0 && (
+        <div className={`${CARD} sm:col-span-2`}>
+          <h3 className="text-sm font-medium text-gray-200 mb-1">
+            À vista × parcelado, em receita
+          </h3>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Quando um período publica dois preços, é esta quebra que explica a
+            receita: à vista paga o menor, parcelado paga a tabela.
+          </p>
+          <p className="text-[11px] text-gray-500 mb-2">Controle</p>
+          <BarraReceita a={c.aVistaCents} b={c.parceladoCents} />
+          <p className="text-[11px] text-gray-500 mt-3 mb-2">Variante</p>
+          <BarraReceita a={v.aVistaCents} b={v.parceladoCents} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Mesma barra do mix, mas rotulada em dinheiro. */
+function BarraReceita({ a, b }: { a: number; b: number }) {
+  const t = a + b || 1;
+  return (
+    <div>
+      <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+        <span>
+          à vista <span className="text-gray-300">{brl(a)}</span>
+        </span>
+        <span>
+          parcelado <span className="text-gray-300">{brl(b)}</span>
+        </span>
+      </div>
+      <div className="flex h-2 rounded-full overflow-hidden bg-gray-800">
+        <div className="bg-emerald-500" style={{ width: `${(a / t) * 100}%` }} />
+        <div className="bg-amber-500" style={{ width: `${(b / t) * 100}%` }} />
       </div>
     </div>
   );
