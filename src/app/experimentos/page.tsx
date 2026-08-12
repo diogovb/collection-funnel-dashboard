@@ -183,10 +183,19 @@ function julgar(
   const minSemanas = report.experiment.config?.min_weeks ?? 4;
 
   if (!razao || sV.mean === 0 || sC.mean === 0) {
+    /* Duas razões diferentes levam aqui, e confundi-las faz o painel mentir:
+       ou ninguém cumpriu a janela de atribuição ainda (normal nas duas
+       primeiras semanas — as compras EXISTEM, só não entram na taxa), ou já
+       cumpriu e o volume é que é pequeno. */
+    const compras = variante.buyers_all + controle.buyers_all;
+    const semMaduros = variante.mature + controle.mature === 0;
     return {
       tom: "neutro",
       titulo: "Ainda não dá para concluir",
-      detalhe: `Poucas compras atribuídas até agora (${variante.buyers} na variante, ${controle.buyers} no controle). A faixa de incerteza cobriria praticamente qualquer resultado.`,
+      detalhe: semMaduros
+        ? `${compras} compra(s) já registrada(s) — ${variante.buyers_all} na variante, ${controle.buyers_all} no controle. ` +
+          `Elas ainda não entram na conta da taxa: ninguém completou os ${report.experiment.attrib_days} dias de janela de atribuição, e medir conversão de quem viu o preço hoje afundaria o número de mentira.`
+        : `Poucas compras maduras até agora (${variante.buyers} na variante, ${controle.buyers} no controle). A faixa de incerteza cobriria praticamente qualquer resultado.`,
     };
   }
 
@@ -428,47 +437,90 @@ function CartaoBraco({
   const conv = wilson(arm.buyers, arm.mature);
   const raio = confidenceSequenceRadius(s.sd, arm.mature);
 
+  /* DOIS RECORTES no mesmo cartão, e a distinção é o ponto:
+     · Compradores e Receita são o que JÁ ACONTECEU, sobre todos os expostos —
+       aparecem desde a primeira venda.
+     · Receita/exposto e Conversão são TAXAS, e taxa só faz sentido sobre quem
+       teve tempo de comprar: quem viu o preço hoje ainda vai comprar amanhã, e
+       contá-lo no denominador afunda o número de mentira.
+     Enquanto ninguém for maduro, as duas taxas dizem isso em vez de exibir um
+     zero — foi o que fez o painel parecer vazio na primeira hora do teste. */
+  const semMaduros = arm.mature === 0;
+  /* Tolerante de propósito: a RPC vive no Supabase e esta página na Vercel, e
+     elas sobem separadas. Campo novo faltando vira zero, não tela branca. */
+  const descartes = arm.discarded ?? [];
+  const compradores = arm.buyers_all ?? 0;
+  const receita = arm.revenue_all_cents ?? 0;
+  const descartadas = descartes.reduce((n, d) => n + d.attempts, 0);
+
   return (
     <div className={`${CARD} ${destaque ? "border-indigo-500/30" : ""}`}>
       <div className="flex items-baseline justify-between">
         <h3 className="text-sm font-medium text-gray-200">{titulo}</h3>
         <span className="text-[11px] text-gray-500">
-          {arm.mature.toLocaleString("pt-BR")} maduros ·{" "}
-          {arm.exposed.toLocaleString("pt-BR")} expostos
+          {arm.exposed.toLocaleString("pt-BR")} expostos ·{" "}
+          {arm.mature.toLocaleString("pt-BR")} maduros
         </span>
       </div>
       <div className="grid grid-cols-2 gap-3 mt-3">
         <Numero
-          rotulo="Receita / exposto"
-          valor={brl(Math.round(s.mean))}
+          rotulo="Compradores"
+          valor={compradores.toLocaleString("pt-BR")}
+          sub="desde o início"
+        />
+        <Numero
+          rotulo="Receita"
+          valor={brl(receita)}
           sub={
-            Number.isFinite(raio)
-              ? `± ${brl(Math.round(raio))}`
-              : "sem faixa ainda"
+            compradores > 0
+              ? `ticket ${brl(Math.round(receita / compradores))}`
+              : undefined
+          }
+        />
+        <Numero
+          rotulo="Receita / exposto"
+          valor={semMaduros ? "—" : brl(Math.round(s.mean))}
+          sub={
+            semMaduros
+              ? "aguardando a janela"
+              : Number.isFinite(raio)
+                ? `± ${brl(Math.round(raio))}`
+                : "sem faixa ainda"
           }
         />
         <Numero
           rotulo="Conversão"
-          valor={pct(conv.p)}
-          sub={`${pct(conv.low)} – ${pct(conv.high)}`}
-        />
-        <Numero
-          rotulo="Compradores"
-          valor={arm.buyers.toLocaleString("pt-BR")}
-        />
-        <Numero
-          rotulo="Receita total"
-          valor={brl(arm.revenue_cents)}
+          valor={semMaduros ? "—" : pct(conv.p)}
           sub={
-            arm.buyers > 0
-              ? `ticket ${brl(Math.round(arm.revenue_cents / arm.buyers))}`
-              : undefined
+            semMaduros
+              ? "aguardando a janela"
+              : `${pct(conv.low)} – ${pct(conv.high)}`
           }
         />
       </div>
+
+      {descartadas > 0 && (
+        /* Tentativa que não virou receita fica VISÍVEL: sem esta linha, uma
+           compra recusada ou reembolsada simplesmente some da tela e parece
+           que o teste não registrou nada. */
+        <p className="mt-3 text-[11px] text-gray-500 border-t border-white/5 pt-2">
+          Fora da conta:{" "}
+          {descartes
+            .map((d) => `${d.attempts} ${ROTULO_DESCARTE[d.status] ?? d.status}`)
+            .join(" · ")}
+        </p>
+      )}
     </div>
   );
 }
+
+/** Status cru da fatura → o que a pessoa que lê o painel entende. */
+const ROTULO_DESCARTE: Record<string, string> = {
+  failed: "recusada",
+  pending: "aguardando pagamento",
+  refunded: "reembolsada",
+  canceled: "cancelada",
+};
 
 function Numero({
   rotulo,
@@ -878,8 +930,9 @@ function Saude({
           sub={`esperado ${exp.split_pct}/${100 - exp.split_pct}`}
         />
         <Numero
-          rotulo="Braços inesperados"
-          valor={String(report.health.unknown_arms)}
+          rotulo="Compras fora do teste"
+          valor={String(report.health.purchases_outside_experiment)}
+          sub="sem exposição"
         />
         <Numero
           rotulo="Última exposição"
@@ -892,6 +945,26 @@ function Saude({
           }
         />
       </div>
+      {report.health.unknown_arms > 0 && (
+        <p className="text-xs text-red-300 mt-3">
+          ⚠️ {report.health.unknown_arms} exposição(ões) com braço fora dos dois
+          esperados.
+        </p>
+      )}
+      {report.health.purchases_outside_experiment > 0 && (
+        /* A pergunta que este número responde: "vendi X hoje, por que o painel
+           mostra menos?". Quem compra sem ter passado por uma tela de preço
+           não tem braço sorteado, então fica fora do numerador E do
+           denominador — é o certo para a comparação, e seria uma armadilha se
+           ficasse invisível. */
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+          {report.health.purchases_outside_experiment} compra(s) paga(s) desde o
+          início do teste vieram de gente que nunca foi exposta a uma tela de
+          preço da biblioteca — checkout do Studio, link direto ou bundle antigo
+          em cache. Ficam fora do teste de propósito: sem exposição não há braço
+          sorteado, e entrar só de um lado enviesaria a comparação.
+        </p>
+      )}
     </div>
   );
 }

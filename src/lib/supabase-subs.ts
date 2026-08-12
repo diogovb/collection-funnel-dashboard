@@ -39,9 +39,20 @@ export type ExperimentArm = {
   exposed: number;
   /** Expostos há mais tempo que a janela de atribuição — a base das TAXAS. */
   mature: number;
+  /** Compradores MADUROS. Base da taxa, do bootstrap e do veredito. */
   buyers: number;
   revenue_cents: number;
   sum_sq_cents: number;
+  /**
+   * Compradores entre TODOS os expostos — o que já aconteceu, sem esperar a
+   * janela de atribuição fechar. É o que a tela mostra no dia a dia: nas duas
+   * primeiras semanas os campos maduros são zero por construção, e zero na
+   * tela é indistinguível de "não está medindo".
+   */
+  buyers_all: number;
+  revenue_all_cents: number;
+  /** Tentativa de compra que não virou receita, por status. */
+  discarded: { status: string; attempts: number; cents: number }[];
   /** Receita por pessoa, agrupada. Permite bootstrap exato sem baixar linhas. */
   value_histogram: { cents: number; users: number }[];
   by_period: {
@@ -87,6 +98,13 @@ export type ExperimentReport = {
     first_exposure_at: string | null;
     exposed_with_access: number;
     unknown_arms: number;
+    /**
+     * Compra paga depois do início do teste, de quem NUNCA foi exposto. Não é
+     * erro — sem exposição não há braço, então a pessoa fica fora do numerador
+     * e do denominador. É o número que explica a diferença entre este painel e
+     * o extrato do gateway.
+     */
+    purchases_outside_experiment: number;
   };
   generated_at: string;
 };
