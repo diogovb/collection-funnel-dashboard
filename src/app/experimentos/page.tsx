@@ -1,0 +1,934 @@
+import {
+  fetchExperimentCatalog,
+  fetchExperimentReport,
+  type ExperimentArm,
+  type ExperimentReport,
+} from "@/lib/supabase-subs";
+import {
+  bootstrapRatio,
+  brl,
+  confidenceSequenceRadius,
+  detectableDifference,
+  pct,
+  sampleSizePerArm,
+  srmPValue,
+  statsFromHistogram,
+  wilson,
+} from "@/lib/stats";
+
+/**
+ * Acompanhamento de testes A/B, desenhado para uma pergunta só: **já dá para
+ * decidir?**
+ *
+ * A tela inteira é organizada contra o erro mais caro de um experimento com
+ * pouco volume — declarar vencedor cedo demais. Daí três escolhas:
+ *
+ *  - o veredito vem PRIMEIRO, e o estado padrão dele é "ainda não dá";
+ *  - nenhuma razão aparece sem faixa de incerteza, e a faixa é cinza enquanto
+ *    cruzar o empate;
+ *  - a régua da decisão é RECEITA por exposto, não conversão. Um preço menor
+ *    quase sempre converte mais; a pergunta é se converte o bastante.
+ *
+ * Server Component: a credencial do banco de assinaturas fica no servidor e a
+ * página chega pronta. `revalidate` de 5 min porque experimento não muda em
+ * segundos — nada de polling.
+ */
+export const revalidate = 300;
+
+const CARD =
+  "bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50";
+
+type Props = { searchParams: Promise<{ exp?: string; janela?: string }> };
+
+export default async function ExperimentosPage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const key = sp.exp || "preco_2026_08";
+  const attribDays = Number(sp.janela) || 14;
+
+  let report: ExperimentReport | null = null;
+  let erro: string | null = null;
+  try {
+    report = await fetchExperimentReport(key, attribDays);
+  } catch (e) {
+    erro = e instanceof Error ? e.message : String(e);
+  }
+
+  if (erro || !report || report.error) {
+    return (
+      <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6">
+        <div className={CARD}>
+          <p className="text-sm text-gray-300">
+            Não foi possível carregar o experimento{" "}
+            <span className="font-mono text-gray-100">{key}</span>.
+          </p>
+          <p className="text-xs text-gray-500 mt-2 font-mono">
+            {erro ?? report?.error}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const exp = report.experiment;
+  const catalogo = await fetchExperimentCatalog(
+    [exp.control_audience, exp.variant_audience],
+    exp.variant_audience,
+  );
+
+  const controle = report.arms.find((a) => a.arm === exp.control_audience);
+  const variante = report.arms.find((a) => a.arm === exp.variant_audience);
+
+  return (
+    <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-4">
+      <Cabecalho report={report} />
+      <Veredito report={report} controle={controle} variante={variante} />
+      {!!controle && !!variante && (
+        <>
+          <ReguaArpeu controle={controle} variante={variante} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <CartaoBraco titulo="A · Controle" arm={controle} />
+            <CartaoBraco titulo="B · Variante" arm={variante} destaque />
+          </div>
+          <BreakEven
+            controle={controle}
+            variante={variante}
+            catalogo={catalogo}
+            controlAudience={exp.control_audience}
+            variantAudience={exp.variant_audience}
+          />
+          <Mix controle={controle} variante={variante} />
+          <Retencao report={report} />
+        </>
+      )}
+      <Saude report={report} controle={controle} variante={variante} />
+      <Metodologia attribDays={report.experiment.attrib_days} />
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------ cabeçalho -- */
+
+function Cabecalho({ report }: { report: ExperimentReport }) {
+  const exp = report.experiment;
+  const desde = report.health.first_exposure_at
+    ? new Date(report.health.first_exposure_at)
+    : null;
+  const dias = desde
+    ? Math.max(0, Math.floor((Date.now() - desde.getTime()) / 86400000))
+    : 0;
+
+  return (
+    <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <h1 className="text-xl font-semibold text-gray-100">{exp.label}</h1>
+        <p className="text-xs text-gray-500 mt-1">
+          <span className="font-mono">{exp.key}</span> · split {exp.split_pct}/
+          {100 - exp.split_pct} · janela de atribuição {exp.attrib_days} dias
+          {desde ? ` · ${dias} ${dias === 1 ? "dia" : "dias"} rodando` : ""}
+        </p>
+      </div>
+      <span
+        className={
+          exp.is_active
+            ? "px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+            : "px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700"
+        }
+      >
+        {exp.is_active ? "No ar" : "Desligado"}
+      </span>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- veredito -- */
+
+type Julgamento = {
+  tom: "neutro" | "atencao" | "bom" | "ruim";
+  titulo: string;
+  detalhe: string;
+};
+
+function julgar(
+  report: ExperimentReport,
+  controle?: ExperimentArm,
+  variante?: ExperimentArm,
+): Julgamento {
+  if (!report.health.total_exposed) {
+    return {
+      tom: "neutro",
+      titulo: "O teste ainda não começou",
+      detalhe:
+        "Nenhuma pessoa foi exposta a um preço. Assim que o experimento for ligado no banco, os números aparecem aqui sozinhos.",
+    };
+  }
+  if (!controle || !variante) {
+    return {
+      tom: "neutro",
+      titulo: "Aguardando os dois braços",
+      detalhe: "Só um dos lados registrou exposição até agora.",
+    };
+  }
+
+  const sV = statsFromHistogram(variante.value_histogram, variante.mature);
+  const sC = statsFromHistogram(controle.value_histogram, controle.mature);
+  const razao = bootstrapRatio(
+    { hist: variante.value_histogram, n: variante.mature },
+    { hist: controle.value_histogram, n: controle.mature },
+  );
+
+  const semanas = report.health.first_exposure_at
+    ? (Date.now() - new Date(report.health.first_exposure_at).getTime()) /
+      (7 * 86400000)
+    : 0;
+  const minSemanas = report.experiment.config?.min_weeks ?? 4;
+
+  if (!razao || sV.mean === 0 || sC.mean === 0) {
+    return {
+      tom: "neutro",
+      titulo: "Ainda não dá para concluir",
+      detalhe: `Poucas compras atribuídas até agora (${variante.buyers} na variante, ${controle.buyers} no controle). A faixa de incerteza cobriria praticamente qualquer resultado.`,
+    };
+  }
+
+  const cruzaEmpate = razao.low <= 1 && razao.high >= 1;
+  const cedo = semanas < minSemanas;
+
+  if (cruzaEmpate) {
+    const apertado = razao.low > 0.95 && razao.high < 1.05;
+    return apertado
+      ? {
+          tom: "neutro",
+          titulo: "Empate de receita",
+          detalhe:
+            "A faixa inteira está a menos de 5% do empate: o preço menor não mudou a receita por pessoa exposta. A decisão passa a ser por critério secundário — volume de base, retenção ou posicionamento.",
+        }
+      : {
+          tom: "neutro",
+          titulo: "Ainda não dá para concluir",
+          detalhe: `A faixa de incerteza (${razao.low.toFixed(2)}× a ${razao.high.toFixed(2)}×) ainda cruza o empate. Continue coletando.`,
+        };
+  }
+
+  const venceVariante = razao.low > 1;
+  if (cedo) {
+    return {
+      tom: "atencao",
+      titulo: venceVariante
+        ? "Variante à frente — preliminar"
+        : "Controle à frente — preliminar",
+      detalhe: `A faixa já não cruza o empate, mas o teste tem menos de ${minSemanas} semanas corridas. Ciclos semanais incompletos enganam: espere fechar as ${minSemanas} semanas antes de decidir.`,
+    };
+  }
+  return venceVariante
+    ? {
+        tom: "bom",
+        titulo: "Decisão: a variante vence",
+        detalhe: `O preço menor gera ${razao.ratio.toFixed(2)}× a receita por pessoa exposta (faixa de ${razao.low.toFixed(2)}× a ${razao.high.toFixed(2)}×). Converteu o bastante para compensar o desconto.`,
+      }
+    : {
+        tom: "ruim",
+        titulo: "Decisão: o controle vence",
+        detalhe: `O preço menor rende ${razao.ratio.toFixed(2)}× a receita por pessoa exposta (faixa de ${razao.low.toFixed(2)}× a ${razao.high.toFixed(2)}×). Converteu mais, mas não o bastante para pagar o desconto.`,
+      };
+}
+
+function Veredito({
+  report,
+  controle,
+  variante,
+}: {
+  report: ExperimentReport;
+  controle?: ExperimentArm;
+  variante?: ExperimentArm;
+}) {
+  const j = julgar(report, controle, variante);
+  const cor = {
+    neutro: "border-gray-800/50",
+    atencao: "border-amber-500/40",
+    bom: "border-emerald-500/40",
+    ruim: "border-red-500/40",
+  }[j.tom];
+  const ponto = {
+    neutro: "bg-gray-500",
+    atencao: "bg-amber-400",
+    bom: "bg-emerald-400",
+    ruim: "bg-red-400",
+  }[j.tom];
+
+  /* Progresso até a amostra: com o desvio observado, quantas pessoas por braço
+     para enxergar o MDE alvo — e quanto falta no ritmo atual. */
+  let progresso: React.ReactNode = null;
+  if (controle && variante && controle.mature > 10) {
+    const sC = statsFromHistogram(controle.value_histogram, controle.mature);
+    const mdePct = (report.experiment.config?.mde_pct ?? 20) / 100;
+    const mde = sC.mean * mdePct;
+    const alvo = sampleSizePerArm(sC.sd, mde);
+    const atual = Math.min(controle.mature, variante.mature);
+    const detectavel = detectableDifference(sC.sd, atual);
+    const pctBarra = Math.min(100, (atual / alvo) * 100);
+    progresso = (
+      <div className="mt-4">
+        <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+          <span>
+            {atual.toLocaleString("pt-BR")} de ~{alvo.toLocaleString("pt-BR")}{" "}
+            por braço
+          </span>
+          <span>
+            hoje só enxergo diferenças acima de{" "}
+            <span className="text-gray-200">
+              {sC.mean > 0 ? pct(detectavel / sC.mean, 0) : "—"}
+            </span>
+          </span>
+        </div>
+        <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
+            style={{ width: `${pctBarra}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${CARD} ${cor}`}>
+      <div className="flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full ${ponto}`} />
+        <h2 className="text-lg font-semibold text-gray-100">{j.titulo}</h2>
+      </div>
+      <p className="text-sm text-gray-400 mt-2 leading-relaxed">{j.detalhe}</p>
+      {progresso}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- régua ARPEU ---- */
+
+/**
+ * A razão de receita por exposto, em escala log, com a linha do empate em 1,00.
+ *
+ * Escala log porque dobrar e cair pela metade têm que ocupar a mesma distância
+ * visual — em escala linear, "perder metade" parece menos grave do que é.
+ */
+function ReguaArpeu({
+  controle,
+  variante,
+}: {
+  controle: ExperimentArm;
+  variante: ExperimentArm;
+}) {
+  const sC = statsFromHistogram(controle.value_histogram, controle.mature);
+  const sV = statsFromHistogram(variante.value_histogram, variante.mature);
+  const razao = bootstrapRatio(
+    { hist: variante.value_histogram, n: variante.mature },
+    { hist: controle.value_histogram, n: controle.mature },
+  );
+
+  const MIN = 0.4;
+  const MAX = 2.5;
+  const x = (v: number) => {
+    const c = Math.min(MAX, Math.max(MIN, v));
+    return ((Math.log(c) - Math.log(MIN)) / (Math.log(MAX) - Math.log(MIN))) * 100;
+  };
+
+  const cruza = !razao || (razao.low <= 1 && razao.high >= 1);
+  const corBarra = cruza
+    ? "#525252"
+    : razao!.low > 1
+      ? "#34d399"
+      : "#f87171";
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between mb-1">
+        <h3 className="text-sm font-medium text-gray-200">
+          Receita por pessoa exposta — variante ÷ controle
+        </h3>
+        <span className="text-xs text-gray-500">
+          {brl(Math.round(sV.mean))} vs {brl(Math.round(sC.mean))}
+        </span>
+      </div>
+      <p className="text-xs text-gray-500 mb-5">
+        É a régua da decisão: o preço já está dentro do número, então{" "}
+        <span className="text-gray-300">1,00× é o empate</span>.
+      </p>
+
+      {razao ? (
+        <>
+          <div className="relative h-16">
+            {/* trilho */}
+            <div className="absolute left-0 right-0 top-7 h-px bg-gray-800" />
+            {/* marcas */}
+            {[0.5, 0.75, 1, 1.5, 2].map((m) => (
+              <div
+                key={m}
+                className="absolute top-0 bottom-0"
+                style={{ left: `${x(m)}%` }}
+              >
+                <div
+                  className={
+                    m === 1
+                      ? "absolute top-2 bottom-5 w-px bg-gray-300"
+                      : "absolute top-5 bottom-6 w-px bg-gray-800"
+                  }
+                />
+                <span
+                  className={`absolute bottom-0 -translate-x-1/2 text-[10px] ${
+                    m === 1 ? "text-gray-300 font-medium" : "text-gray-600"
+                  }`}
+                >
+                  {m === 1 ? "empate" : `${m}×`}
+                </span>
+              </div>
+            ))}
+            {/* faixa de incerteza */}
+            <div
+              className="absolute top-[22px] h-3 rounded-full opacity-40"
+              style={{
+                left: `${x(razao.low)}%`,
+                width: `${Math.max(0.6, x(razao.high) - x(razao.low))}%`,
+                background: corBarra,
+              }}
+            />
+            {/* estimativa */}
+            <div
+              className="absolute top-[19px] w-1.5 h-[18px] rounded-sm -translate-x-1/2"
+              style={{ left: `${x(razao.ratio)}%`, background: corBarra }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            <span className="text-gray-100 font-medium">
+              {razao.ratio.toFixed(2)}×
+            </span>{" "}
+            (faixa de {razao.low.toFixed(2)}× a {razao.high.toFixed(2)}×
+            {cruza ? " — ainda cruza o empate" : ""})
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-gray-500">
+          Ainda sem compras suficientes para estimar a razão.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- cartão do braço -- */
+
+function CartaoBraco({
+  titulo,
+  arm,
+  destaque,
+}: {
+  titulo: string;
+  arm: ExperimentArm;
+  destaque?: boolean;
+}) {
+  const s = statsFromHistogram(arm.value_histogram, arm.mature);
+  const conv = wilson(arm.buyers, arm.mature);
+  const raio = confidenceSequenceRadius(s.sd, arm.mature);
+
+  return (
+    <div className={`${CARD} ${destaque ? "border-indigo-500/30" : ""}`}>
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-sm font-medium text-gray-200">{titulo}</h3>
+        <span className="text-[11px] text-gray-500">
+          {arm.mature.toLocaleString("pt-BR")} maduros ·{" "}
+          {arm.exposed.toLocaleString("pt-BR")} expostos
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <Numero
+          rotulo="Receita / exposto"
+          valor={brl(Math.round(s.mean))}
+          sub={
+            Number.isFinite(raio)
+              ? `± ${brl(Math.round(raio))}`
+              : "sem faixa ainda"
+          }
+        />
+        <Numero
+          rotulo="Conversão"
+          valor={pct(conv.p)}
+          sub={`${pct(conv.low)} – ${pct(conv.high)}`}
+        />
+        <Numero
+          rotulo="Compradores"
+          valor={arm.buyers.toLocaleString("pt-BR")}
+        />
+        <Numero
+          rotulo="Receita total"
+          valor={brl(arm.revenue_cents)}
+          sub={
+            arm.buyers > 0
+              ? `ticket ${brl(Math.round(arm.revenue_cents / arm.buyers))}`
+              : undefined
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function Numero({
+  rotulo,
+  valor,
+  sub,
+}: {
+  rotulo: string;
+  valor: string;
+  sub?: string;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] text-gray-500">{rotulo}</p>
+      <p className="text-lg font-semibold text-gray-100 leading-tight">
+        {valor}
+      </p>
+      {!!sub && <p className="text-[11px] text-gray-500">{sub}</p>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- break-even ---- */
+
+/**
+ * Quanto a variante precisa converter A MAIS, por produto, só para empatar.
+ *
+ * É a conta que desfaz a ilusão mais comum de teste de preço: converter mais
+ * não é vencer. A régua sai dos PREÇOS do banco, então serve qualquer
+ * experimento futuro sem tocar no código.
+ */
+function BreakEven({
+  controle,
+  variante,
+  catalogo,
+  controlAudience,
+  variantAudience,
+}: {
+  controle: ExperimentArm;
+  variante: ExperimentArm;
+  catalogo: {
+    slug: string;
+    audience: string;
+    duration_months: number | null;
+    price_full_cents: number;
+  }[];
+  controlAudience: string;
+  variantAudience: string;
+}) {
+  const duracoes = [
+    { meses: 12, nome: "Anual" },
+    { meses: 1, nome: "Mensal" },
+  ];
+
+  type Linha = {
+    nome: string;
+    fator: number;
+    precoC: number;
+    precoV: number;
+    convC: number;
+    convV: number;
+    meta: number;
+    faltam: number;
+  };
+
+  const compradoresDe = (arm: ExperimentArm, meses: number) =>
+    arm.by_period
+      .filter((b) => b.duration_months === meses)
+      .reduce((s, b) => s + b.buyers, 0);
+
+  const linhas: Linha[] = [];
+  for (const { meses, nome } of duracoes) {
+    const pC = catalogo.find(
+      (c) => c.audience === controlAudience && c.duration_months === meses,
+    );
+    const pV = catalogo.find(
+      (c) => c.audience === variantAudience && c.duration_months === meses,
+    );
+    if (!pC || !pV || pV.price_full_cents <= 0) continue;
+
+    const convC =
+      controle.mature > 0 ? compradoresDe(controle, meses) / controle.mature : 0;
+    const convV =
+      variante.mature > 0 ? compradoresDe(variante, meses) / variante.mature : 0;
+    /* O fator: quanto o preço encolheu é quanto a conversão precisa crescer. */
+    const fator = pC.price_full_cents / pV.price_full_cents;
+    const meta = convC * fator;
+    const faltam = Math.max(
+      0,
+      Math.ceil(meta * variante.mature) - compradoresDe(variante, meses),
+    );
+    linhas.push({
+      nome,
+      fator,
+      precoC: pC.price_full_cents,
+      precoV: pV.price_full_cents,
+      convC,
+      convV,
+      meta,
+      faltam,
+    });
+  }
+
+  if (!linhas.length) return null;
+
+  return (
+    <div className={CARD}>
+      <h3 className="text-sm font-medium text-gray-200">
+        Conversão contra o empate, por produto
+      </h3>
+      <p className="text-xs text-gray-500 mt-1 mb-4">
+        Converter mais não é vencer: com preço menor, a variante precisa de mais
+        compradores só para chegar à mesma receita.
+      </p>
+      <div className="space-y-5">
+        {linhas.map((l) => (
+          <LinhaBreakEven key={l.nome} l={l} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LinhaBreakEven({
+  l,
+}: {
+  l: {
+    nome: string;
+    fator: number;
+    precoC: number;
+    precoV: number;
+    convC: number;
+    convV: number;
+    meta: number;
+    faltam: number;
+  };
+}) {
+  /* Escala comum às duas barras e à meta, senão a comparação visual mente. */
+  const escala = Math.max(l.meta, l.convC, l.convV, 0.0001) * 1.2;
+  const largura = (v: number) => `${Math.min(100, (v / escala) * 100)}%`;
+  const bateu = l.convV >= l.meta && l.meta > 0;
+
+  return (
+    <div>
+      <div className="flex justify-between text-xs mb-2 gap-3">
+        <span className="text-gray-300">
+          {l.nome}{" "}
+          <span className="text-gray-600">
+            {brl(l.precoC)} → {brl(l.precoV)}
+          </span>
+        </span>
+        <span className="text-gray-500 whitespace-nowrap">
+          precisa de <span className="text-gray-300">{l.fator.toFixed(2)}×</span>{" "}
+          a conversão
+        </span>
+      </div>
+
+      <div className="relative rounded-lg bg-gray-950/60 border border-gray-800/50 px-2 py-2 space-y-1.5">
+        <BarraConv rotulo="A" valor={l.convC} largura={largura(l.convC)} cor="bg-gray-600" />
+        <BarraConv
+          rotulo="B"
+          valor={l.convV}
+          largura={largura(l.convV)}
+          cor={bateu ? "bg-emerald-500" : "bg-indigo-500"}
+        />
+        {/* A meta: onde a variante precisa chegar para empatar a receita. */}
+        <div
+          className="absolute top-1 bottom-1 border-l border-dashed border-amber-300/80"
+          style={{ left: `calc(0.5rem + ${largura(l.meta)})` }}
+        />
+      </div>
+
+      <p className="text-[11px] text-gray-500 mt-1.5">
+        {l.meta <= 0
+          ? "sem compras no controle ainda — a meta aparece quando houver"
+          : l.faltam > 0
+            ? `faltam +${l.faltam} ${l.faltam === 1 ? "comprador" : "compradores"} na variante para empatar a receita`
+            : "a variante já passou do empate neste produto"}
+      </p>
+    </div>
+  );
+}
+
+function BarraConv({
+  rotulo,
+  valor,
+  largura,
+  cor,
+}: {
+  rotulo: string;
+  valor: number;
+  largura: string;
+  cor: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-gray-600 w-3">{rotulo}</span>
+      <div className="flex-1 h-3 rounded-sm bg-gray-900/80 overflow-hidden">
+        <div className={`h-full ${cor}`} style={{ width: largura }} />
+      </div>
+      <span className="text-[10px] text-gray-500 w-12 text-right">
+        {pct(valor, 1)}
+      </span>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- mix ---- */
+
+function Mix({
+  controle,
+  variante,
+}: {
+  controle: ExperimentArm;
+  variante: ExperimentArm;
+}) {
+  const linhas = (arm: ExperimentArm) => {
+    const anual = arm.by_period
+      .filter((b) => b.duration_months === 12)
+      .reduce((s, b) => s + b.buyers, 0);
+    const mensal = arm.by_period
+      .filter((b) => b.duration_months === 1)
+      .reduce((s, b) => s + b.buyers, 0);
+    const pix = arm.by_method
+      .filter((m) => m.method === "pix")
+      .reduce((s, m) => s + m.buyers, 0);
+    const cartao = arm.by_method
+      .filter((m) => m.method !== "pix")
+      .reduce((s, m) => s + m.buyers, 0);
+    return { anual, mensal, pix, cartao };
+  };
+  const c = linhas(controle);
+  const v = linhas(variante);
+
+  const Barra = ({ a, b, ra, rb }: { a: number; b: number; ra: string; rb: string }) => {
+    const t = a + b || 1;
+    return (
+      <div>
+        <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+          <span>
+            {ra} <span className="text-gray-300">{a}</span>
+          </span>
+          <span>
+            {rb} <span className="text-gray-300">{b}</span>
+          </span>
+        </div>
+        <div className="flex h-2 rounded-full overflow-hidden bg-gray-800">
+          <div className="bg-indigo-500" style={{ width: `${(a / t) * 100}%` }} />
+          <div className="bg-teal-500" style={{ width: `${(b / t) * 100}%` }} />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={CARD}>
+        <h3 className="text-sm font-medium text-gray-200 mb-3">
+          Anual × Mensal
+        </h3>
+        <p className="text-[11px] text-gray-500 mb-2">Controle</p>
+        <Barra a={c.anual} b={c.mensal} ra="anual" rb="mensal" />
+        <p className="text-[11px] text-gray-500 mt-3 mb-2">Variante</p>
+        <Barra a={v.anual} b={v.mensal} ra="anual" rb="mensal" />
+      </div>
+      <div className={CARD}>
+        <h3 className="text-sm font-medium text-gray-200 mb-3">
+          Pix × Cartão
+        </h3>
+        <p className="text-[11px] text-gray-500 mb-2">Controle</p>
+        <Barra a={c.pix} b={c.cartao} ra="pix" rb="cartão" />
+        <p className="text-[11px] text-gray-500 mt-3 mb-2">Variante</p>
+        <Barra a={v.pix} b={v.cartao} ra="pix" rb="cartão" />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- retenção ----- */
+
+function Retencao({ report }: { report: ExperimentReport }) {
+  if (!report.retention.length) {
+    return (
+      <div className={CARD}>
+        <h3 className="text-sm font-medium text-gray-200">Retenção</h3>
+        <p className="text-xs text-gray-500 mt-1">
+          Ainda não há nenhum mês fechado. O veredito do{" "}
+          <span className="text-gray-300">mensal</span> depende daqui: a R$ 49
+          ele só empata se a pessoa ficar cerca do dobro do tempo.
+        </p>
+      </div>
+    );
+  }
+  const meses = [...new Set(report.retention.map((r) => r.offset_month))].sort(
+    (a, b) => a - b,
+  );
+  const bracos = [...new Set(report.retention.map((r) => r.arm))];
+
+  return (
+    <div className={CARD}>
+      <h3 className="text-sm font-medium text-gray-200 mb-3">
+        Retenção por braço
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="text-xs w-full">
+          <thead>
+            <tr className="text-gray-500">
+              <th className="text-left font-normal pb-1">braço</th>
+              {meses.map((m) => (
+                <th key={m} className="font-normal pb-1 px-2">
+                  M{m}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bracos.map((b) => (
+              <tr key={b}>
+                <td className="text-gray-300 pr-3 font-mono text-[11px]">{b}</td>
+                {meses.map((m) => {
+                  const cel = report.retention.find(
+                    (r) => r.arm === b && r.offset_month === m,
+                  );
+                  const p = cel && cel.cohort ? cel.retained / cel.cohort : null;
+                  return (
+                    <td key={m} className="px-1 py-0.5">
+                      <div
+                        className="rounded px-2 py-1 text-center text-gray-100"
+                        style={{
+                          background:
+                            p == null
+                              ? "transparent"
+                              : `rgba(99,102,241,${0.12 + p * 0.6})`,
+                        }}
+                      >
+                        {p == null ? "—" : pct(p, 0)}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- saúde ----- */
+
+function Saude({
+  report,
+  controle,
+  variante,
+}: {
+  report: ExperimentReport;
+  controle?: ExperimentArm;
+  variante?: ExperimentArm;
+}) {
+  const exp = report.experiment;
+  const srm =
+    controle && variante
+      ? srmPValue(
+          [controle.exposed, variante.exposed],
+          [100 - exp.split_pct, exp.split_pct],
+        )
+      : null;
+
+  const ultima = report.health.last_exposure_at
+    ? new Date(report.health.last_exposure_at)
+    : null;
+  const minutos = ultima
+    ? Math.floor((Date.now() - ultima.getTime()) / 60000)
+    : null;
+
+  return (
+    <div className={`${CARD} ${srm?.suspeito ? "border-red-500/50" : ""}`}>
+      <h3 className="text-sm font-medium text-gray-200">Sanidade</h3>
+      {srm?.suspeito && (
+        <p className="text-xs text-red-300 mt-2">
+          ⚠️ O split observado não bate com o esperado (χ² ={" "}
+          {srm.chi2.toFixed(1)}). Enquanto isso não for explicado, os números
+          acima não valem — um sorteio torto significa que os dois grupos não
+          são comparáveis.
+        </p>
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
+        <Numero
+          rotulo="Expostos"
+          valor={report.health.total_exposed.toLocaleString("pt-BR")}
+        />
+        <Numero
+          rotulo="Split observado"
+          valor={
+            controle && variante && controle.exposed + variante.exposed > 0
+              ? `${Math.round(
+                  (variante.exposed /
+                    (controle.exposed + variante.exposed)) *
+                    100,
+                )}/${Math.round(
+                  (controle.exposed /
+                    (controle.exposed + variante.exposed)) *
+                    100,
+                )}`
+              : "—"
+          }
+          sub={`esperado ${exp.split_pct}/${100 - exp.split_pct}`}
+        />
+        <Numero
+          rotulo="Braços inesperados"
+          valor={String(report.health.unknown_arms)}
+        />
+        <Numero
+          rotulo="Última exposição"
+          valor={
+            minutos == null
+              ? "—"
+              : minutos < 60
+                ? `há ${minutos} min`
+                : `há ${Math.floor(minutos / 60)} h`
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------- metodologia ---- */
+
+function Metodologia({ attribDays }: { attribDays: number }) {
+  return (
+    <details className={CARD}>
+      <summary className="text-sm font-medium text-gray-300 cursor-pointer">
+        Como ler esta tela
+      </summary>
+      <div className="text-xs text-gray-400 mt-3 space-y-2 leading-relaxed">
+        <p>
+          <strong className="text-gray-300">Receita por pessoa exposta</strong>{" "}
+          é a métrica de decisão. Ela já embute o preço, então 1,00× é o empate:
+          uma variante que converte mais mas rende menos aparece abaixo de 1.
+        </p>
+        <p>
+          <strong className="text-gray-300">Maduros</strong> são os expostos há
+          mais de {attribDays} dias — quem viu o preço ontem ainda não teve
+          chance de comprar, e contá-lo derrubaria a média artificialmente.
+        </p>
+        <p>
+          <strong className="text-gray-300">A faixa de incerteza</strong> é uma
+          sequência de confiança, não um intervalo de 95% comum: ela continua
+          válida mesmo com a tela sendo aberta todo dia. Um intervalo comum,
+          espiado repetidamente, cruza a fronteira por acaso muito mais que 5%
+          das vezes — é assim que se "descobre" vencedor que não existe.
+        </p>
+        <p>
+          <strong className="text-gray-300">A razão</strong> vem de bootstrap
+          sobre a distribuição real de gasto (quase todo mundo em zero, alguns
+          poucos na cauda). Fórmula normal não serve para esse formato nesse
+          tamanho de amostra.
+        </p>
+      </div>
+    </details>
+  );
+}
