@@ -265,6 +265,20 @@ export type ExperimentCohorts = {
     mature: number;
     buyers: number;
     revenue_cents: number;
+    /**
+     * A quebra por produto — só os COMPRADORES se dividem.
+     *
+     * Quem foi exposto ainda não escolheu período, então `exposed` não tem
+     * anual nem mensal: inventar essa divisão daria uma taxa por produto com
+     * denominador imaginário.
+     *
+     * `buyers_outro` são compras que não são assinatura de período — pacote de
+     * crédito, ou fatura sem `period_id`. Existe para a soma FECHAR: sem ele,
+     * anual + mensal não bateria com `buyers` e a divergência passaria batida.
+     */
+    buyers_anual?: number;
+    buyers_mensal?: number;
+    buyers_outro?: number;
   }[];
   generated_at?: string;
   error?: string;
