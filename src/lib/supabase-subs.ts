@@ -233,3 +233,62 @@ export async function fetchExperimentFunnel(
   if (error) throw new Error(`admin_experiment_funnel: ${error.message}`);
   return data as ExperimentFunnel;
 }
+
+/* --------------------------------------------------------------- coortes -- */
+
+/**
+ * Os eixos, e o que cada um responde.
+ *
+ * São INDEPENDENTES: a mesma pessoa aparece uma vez em cada. Alguém pode ser
+ * conta de dois anos que nunca assinou. Empilhar os dois numa lista só faria a
+ * mesma pessoa ser contada duas vezes.
+ */
+export const COHORT_AXES = ["historico", "idade_conta"] as const;
+export type CohortAxis = (typeof COHORT_AXES)[number];
+
+export const COHORT_AXIS_LABELS: Record<CohortAxis, string> = {
+  historico: "Já tinha assinado?",
+  idade_conta: "Há quanto tempo tem conta",
+};
+
+export type ExperimentCohorts = {
+  experiment_key: string;
+  started_at: string | null;
+  is_active: boolean;
+  attrib_days: number;
+  cohorts: {
+    axis: string;
+    ord: number;
+    bucket: string;
+    arm: string;
+    exposed: number;
+    mature: number;
+    buyers: number;
+    revenue_cents: number;
+  }[];
+  generated_at?: string;
+  error?: string;
+};
+
+/**
+ * Quem comprou em cada braço, por coorte.
+ *
+ * O placar diz QUANTO cada braço vendeu; isto diz PARA QUEM. Cada linha traz
+ * `exposed` e `buyers` juntos de propósito: a leitura que responde à pergunta é
+ * a conversão DENTRO da coorte, não a fatia que a coorte ocupa entre os
+ * compradores — essa se move sozinha quando um braço vende mais.
+ *
+ * Mesma base do relatório e do funil (só depois do `started_at`, sem conta
+ * interna), garantida no SQL.
+ */
+export async function fetchExperimentCohorts(
+  experimentKey: string,
+  attribDays = 14,
+): Promise<ExperimentCohorts> {
+  const { data, error } = await getSubsClient().rpc(
+    "admin_experiment_cohorts",
+    { p_experiment_key: experimentKey, p_attrib_days: attribDays },
+  );
+  if (error) throw new Error(`admin_experiment_cohorts: ${error.message}`);
+  return data as ExperimentCohorts;
+}
