@@ -1255,9 +1255,11 @@ function Coortes({
         abaixo disso um comprador a mais move a conta em dezenas de pontos. A
         linha menor quebra os <strong>compradores</strong> por produto; os
         expostos não se dividem, porque quem viu o preço ainda não escolheu
-        período. &ldquo;Outro&rdquo; é compra que não é assinatura de período
-        (pacote de crédito, ou fatura sem período) — fica visível para anual +
-        mensal sempre fechar com o total. &ldquo;Já renovou&rdquo; conta faturas
+        período. &ldquo;Outro&rdquo; é assinatura cuja fatura não aponta para um
+        período — fica visível para anual + mensal sempre fechar com o total.
+        Compra de <strong>crédito de IA</strong> não entra em lugar nenhum desta
+        tela: é outro produto, e contá-la inflava o placar dos dois braços.
+        &ldquo;Já renovou&rdquo; conta faturas
         anteriores à exposição, então é piso e não retrato: quem renovou no
         sistema antigo não deixou fatura aqui e aparece em &ldquo;assinou uma
         vez&rdquo;.

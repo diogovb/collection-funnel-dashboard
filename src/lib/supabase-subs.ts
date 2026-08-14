@@ -272,9 +272,14 @@ export type ExperimentCohorts = {
      * anual nem mensal: inventar essa divisão daria uma taxa por produto com
      * denominador imaginário.
      *
-     * `buyers_outro` são compras que não são assinatura de período — pacote de
-     * crédito, ou fatura sem `period_id`. Existe para a soma FECHAR: sem ele,
-     * anual + mensal não bateria com `buyers` e a divergência passaria batida.
+     * `buyers_outro` é assinatura cuja fatura não aponta para um período.
+     * Existe para a soma FECHAR: sem ele, anual + mensal não bateria com
+     * `buyers` e a divergência passaria batida.
+     *
+     * ⚠️ Compra de CRÉDITO de IA não entra em nada disto — nem aqui, nem no
+     * placar. Ela contava como conversão do teste de preço até 14/08 e inflava
+     * os dois braços de forma assimétrica; a RPC agora filtra por
+     * `credit_package_id IS NULL` nos cinco pontos que leem fatura.
      */
     buyers_anual?: number;
     buyers_mensal?: number;
