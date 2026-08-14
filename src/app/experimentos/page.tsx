@@ -1,11 +1,16 @@
 import {
+  COHORT_AXES,
+  COHORT_AXIS_LABELS,
   fetchExperimentCatalog,
+  fetchExperimentCohorts,
   fetchExperimentFunnel,
   fetchExperimentReport,
   FUNNEL_LABELS,
   FUNNEL_STEPS,
   type CatalogPeriod,
+  type CohortAxis,
   type ExperimentArm,
+  type ExperimentCohorts,
   type ExperimentFunnel,
   type ExperimentReport,
   type FunnelStep,
@@ -93,6 +98,16 @@ export default async function ExperimentosPage({ searchParams }: Props) {
     funil = null;
   }
 
+  /* Mesma postura do funil: as coortes são leitura, não placar. A RPC sobe no
+     Supabase e a página na Vercel, separadas — se uma chegar antes da outra, o
+     bloco some e o resto da tela continua. */
+  let coortes: ExperimentCohorts | null = null;
+  try {
+    coortes = await fetchExperimentCohorts(key, attribDays);
+  } catch {
+    coortes = null;
+  }
+
   return (
     <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-4">
       <Cabecalho report={report} />
@@ -104,6 +119,13 @@ export default async function ExperimentosPage({ searchParams }: Props) {
             <CartaoBraco titulo="A · Controle" arm={controle} />
             <CartaoBraco titulo="B · Variante" arm={variante} destaque />
           </div>
+          {!!coortes && (
+            <Coortes
+              coortes={coortes}
+              controlAudience={exp.control_audience}
+              variantAudience={exp.variant_audience}
+            />
+          )}
           <BreakEven
             controle={controle}
             variante={variante}
@@ -1106,6 +1128,170 @@ function BarraReceita({ a, b }: { a: number; b: number }) {
   );
 }
 
+/* ---------------------------------------------------------- coortes ------ */
+
+/**
+ * Abaixo de quantos expostos a taxa vira anedota.
+ *
+ * Com 3 expostos e 1 comprador, "33,3%" é um número verdadeiro e uma
+ * informação falsa — a próxima pessoa move a taxa em 25 pontos. É a mesma
+ * decisão do `bootstrapRatio`, que devolve `null` abaixo de 10 maduros: melhor
+ * um traço honesto que um decimal que convida a decidir.
+ */
+const PISO_DA_COORTE = 20;
+
+type LinhaDeCoorte = {
+  bucket: string;
+  aExp: number;
+  aComp: number;
+  bExp: number;
+  bComp: number;
+};
+
+/**
+ * Quem comprou em cada braço — o "para quem" logo depois do "quanto".
+ *
+ * ## A leitura é a TAXA, não a fatia
+ *
+ * É tentador ler "58% dos compradores do B nunca tinham assinado" e concluir
+ * algo. Não dá: se o B vende mais, a composição dos compradores se move
+ * sozinha. A pergunta "o preço menor traz gente nova ou reativa quem já
+ * pagou?" só é respondida por conversão DENTRO da coorte — quantos dos
+ * expostos daquele grupo compraram. Por isso cada célula mostra
+ * `compradores/expostos` antes da porcentagem: o denominador fica à vista.
+ *
+ * ## Dois eixos, não uma lista
+ *
+ * "Nunca assinou" e "conta de 2 anos" não são alternativas — são respostas a
+ * perguntas diferentes, e a mesma pessoa tem as duas. Numa lista só, ela seria
+ * contada duas vezes.
+ */
+function Coortes({
+  coortes,
+  controlAudience,
+  variantAudience,
+}: {
+  coortes: ExperimentCohorts;
+  controlAudience: string;
+  variantAudience: string;
+}) {
+  const todas = coortes.cohorts ?? [];
+  if (!todas.length) return null;
+
+  const porEixo = (axis: CohortAxis): LinhaDeCoorte[] => {
+    const doEixo = todas.filter((c) => c.axis === axis);
+    const ordem = [...new Set(doEixo.map((c) => c.ord))].sort((x, y) => x - y);
+    return ordem
+      .map((ord) => {
+        const a = doEixo.find((c) => c.ord === ord && c.arm === controlAudience);
+        const b = doEixo.find((c) => c.ord === ord && c.arm === variantAudience);
+        return {
+          bucket: a?.bucket ?? b?.bucket ?? "",
+          aExp: a?.exposed ?? 0,
+          aComp: a?.buyers ?? 0,
+          bExp: b?.exposed ?? 0,
+          bComp: b?.buyers ?? 0,
+        };
+      })
+      /* Balde sem ninguém em nenhum dos dois braços não vira linha vazia. */
+      .filter((l) => l.aExp + l.bExp > 0);
+  };
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h2 className="text-sm font-medium text-gray-200">
+          Quem comprou em cada braço
+        </h2>
+        <span className="text-[11px] text-gray-500">
+          taxa = compradores ÷ expostos <strong>da coorte</strong>
+        </span>
+      </div>
+
+      {COHORT_AXES.map((axis) => {
+        const linhas = porEixo(axis);
+        if (!linhas.length) return null;
+        return (
+          <div key={axis} className="mt-4">
+            <p className="text-[11px] text-gray-400 mb-1">
+              {COHORT_AXIS_LABELS[axis]}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[420px]">
+                <thead>
+                  <tr className="text-gray-500 text-[11px]">
+                    <th className="text-left font-normal pb-2">Coorte</th>
+                    <th className="text-right font-normal pb-2">A · controle</th>
+                    <th className="text-right font-normal pb-2">B · variante</th>
+                    <th className="text-right font-normal pb-2 w-16">B ÷ A</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhas.map((l) => (
+                    <LinhaCoorte key={`${axis}-${l.bucket}`} linha={l} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
+      <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+        A taxa só aparece com pelo menos {PISO_DA_COORTE} expostos na célula —
+        abaixo disso um comprador a mais move a conta em dezenas de pontos.
+        &ldquo;Já renovou&rdquo; conta faturas anteriores à exposição, então é
+        piso e não retrato: quem renovou no sistema antigo não deixou fatura
+        aqui e aparece em &ldquo;assinou uma vez&rdquo;.
+      </p>
+    </div>
+  );
+}
+
+function LinhaCoorte({ linha }: { linha: LinhaDeCoorte }) {
+  const taxa = (comp: number, exp: number) =>
+    exp >= PISO_DA_COORTE ? comp / exp : null;
+  const ta = taxa(linha.aComp, linha.aExp);
+  const tb = taxa(linha.bComp, linha.bExp);
+  /* A razão só existe com as DUAS taxas de pé — comparar contra uma célula que
+     nem taxa tem seria inventar a metade que falta. */
+  const razao = ta !== null && tb !== null && ta > 0 ? tb / ta : null;
+
+  return (
+    <tr className="border-t border-gray-800/50">
+      <td className="py-1.5 text-gray-300">{linha.bucket}</td>
+      <Celula compradores={linha.aComp} expostos={linha.aExp} taxa={ta} />
+      <Celula compradores={linha.bComp} expostos={linha.bExp} taxa={tb} />
+      {/* Cinza sempre: sem faixa de incerteza, colorir a razão convidaria a
+          decidir por um número que ainda é ruído. */}
+      <td className="py-1.5 text-right text-gray-500 tabular-nums">
+        {razao === null ? "—" : `${razao.toFixed(1).replace(".", ",")}×`}
+      </td>
+    </tr>
+  );
+}
+
+function Celula({
+  compradores,
+  expostos,
+  taxa,
+}: {
+  compradores: number;
+  expostos: number;
+  taxa: number | null;
+}) {
+  return (
+    <td className="py-1.5 text-right text-gray-100 tabular-nums">
+      {compradores}
+      <span className="text-gray-600">/{expostos}</span>
+      {/* `pct` já multiplica por 100 — recebe fração, não porcentagem. */}
+      <span className="text-gray-500 ml-1.5">
+        {taxa === null ? "—" : pct(taxa)}
+      </span>
+    </td>
+  );
+}
+
 /* ---------------------------------------------------------- retenção ----- */
 
 function Retencao({ report }: { report: ExperimentReport }) {
@@ -1308,6 +1494,14 @@ function Metodologia({ attribDays }: { attribDays: number }) {
           sobre a distribuição real de gasto (quase todo mundo em zero, alguns
           poucos na cauda). Fórmula normal não serve para esse formato nesse
           tamanho de amostra.
+        </p>
+        <p>
+          <strong className="text-gray-300">As coortes</strong> mostram taxa
+          sobre os expostos <em>daquele grupo</em>, nunca a fatia que o grupo
+          ocupa entre os compradores. A fatia se move sozinha quando um braço
+          vende mais — ler &ldquo;a maioria dos compradores do B nunca tinha
+          assinado&rdquo; como efeito do preço é o erro que essa escolha de
+          denominador evita.
         </p>
       </div>
     </details>
