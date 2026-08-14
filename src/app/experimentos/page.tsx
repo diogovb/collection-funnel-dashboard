@@ -1140,12 +1140,16 @@ function BarraReceita({ a, b }: { a: number; b: number }) {
  */
 const PISO_DA_COORTE = 20;
 
+type QuebraPorProduto = { anual: number; mensal: number; outro: number };
+
 type LinhaDeCoorte = {
   bucket: string;
   aExp: number;
   aComp: number;
+  aProd: QuebraPorProduto;
   bExp: number;
   bComp: number;
+  bProd: QuebraPorProduto;
 };
 
 /**
@@ -1185,12 +1189,21 @@ function Coortes({
       .map((ord) => {
         const a = doEixo.find((c) => c.ord === ord && c.arm === controlAudience);
         const b = doEixo.find((c) => c.ord === ord && c.arm === variantAudience);
+        /* `?? 0` em cada campo: a RPC sobe no Supabase e a página na Vercel,
+           separadas. Campo novo que ainda não chegou vira zero, não NaN. */
+        const produto = (c?: (typeof doEixo)[number]): QuebraPorProduto => ({
+          anual: c?.buyers_anual ?? 0,
+          mensal: c?.buyers_mensal ?? 0,
+          outro: c?.buyers_outro ?? 0,
+        });
         return {
           bucket: a?.bucket ?? b?.bucket ?? "",
           aExp: a?.exposed ?? 0,
           aComp: a?.buyers ?? 0,
+          aProd: produto(a),
           bExp: b?.exposed ?? 0,
           bComp: b?.buyers ?? 0,
+          bProd: produto(b),
         };
       })
       /* Balde sem ninguém em nenhum dos dois braços não vira linha vazia. */
@@ -1239,10 +1252,15 @@ function Coortes({
 
       <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
         A taxa só aparece com pelo menos {PISO_DA_COORTE} expostos na célula —
-        abaixo disso um comprador a mais move a conta em dezenas de pontos.
-        &ldquo;Já renovou&rdquo; conta faturas anteriores à exposição, então é
-        piso e não retrato: quem renovou no sistema antigo não deixou fatura
-        aqui e aparece em &ldquo;assinou uma vez&rdquo;.
+        abaixo disso um comprador a mais move a conta em dezenas de pontos. A
+        linha menor quebra os <strong>compradores</strong> por produto; os
+        expostos não se dividem, porque quem viu o preço ainda não escolheu
+        período. &ldquo;Outro&rdquo; é compra que não é assinatura de período
+        (pacote de crédito, ou fatura sem período) — fica visível para anual +
+        mensal sempre fechar com o total. &ldquo;Já renovou&rdquo; conta faturas
+        anteriores à exposição, então é piso e não retrato: quem renovou no
+        sistema antigo não deixou fatura aqui e aparece em &ldquo;assinou uma
+        vez&rdquo;.
       </p>
     </div>
   );
@@ -1259,12 +1277,22 @@ function LinhaCoorte({ linha }: { linha: LinhaDeCoorte }) {
 
   return (
     <tr className="border-t border-gray-800/50">
-      <td className="py-1.5 text-gray-300">{linha.bucket}</td>
-      <Celula compradores={linha.aComp} expostos={linha.aExp} taxa={ta} />
-      <Celula compradores={linha.bComp} expostos={linha.bExp} taxa={tb} />
+      <td className="py-1.5 text-gray-300 align-top">{linha.bucket}</td>
+      <Celula
+        compradores={linha.aComp}
+        expostos={linha.aExp}
+        taxa={ta}
+        produto={linha.aProd}
+      />
+      <Celula
+        compradores={linha.bComp}
+        expostos={linha.bExp}
+        taxa={tb}
+        produto={linha.bProd}
+      />
       {/* Cinza sempre: sem faixa de incerteza, colorir a razão convidaria a
           decidir por um número que ainda é ruído. */}
-      <td className="py-1.5 text-right text-gray-500 tabular-nums">
+      <td className="py-1.5 text-right text-gray-500 tabular-nums align-top">
         {razao === null ? "—" : `${razao.toFixed(1).replace(".", ",")}×`}
       </td>
     </tr>
@@ -1275,19 +1303,37 @@ function Celula({
   compradores,
   expostos,
   taxa,
+  produto,
 }: {
   compradores: number;
   expostos: number;
   taxa: number | null;
+  produto: QuebraPorProduto;
 }) {
+  /* Só as parcelas que existem. "0 mensal" ocuparia uma linha inteira para
+     dizer nada, e numa tabela com muitas células o vazio é o que deixa o
+     preenchido visível. */
+  const partes = [
+    produto.anual > 0 ? `${produto.anual} anual` : null,
+    produto.mensal > 0 ? `${produto.mensal} mensal` : null,
+    produto.outro > 0 ? `${produto.outro} outro` : null,
+  ].filter(Boolean);
+
   return (
-    <td className="py-1.5 text-right text-gray-100 tabular-nums">
-      {compradores}
-      <span className="text-gray-600">/{expostos}</span>
-      {/* `pct` já multiplica por 100 — recebe fração, não porcentagem. */}
-      <span className="text-gray-500 ml-1.5">
-        {taxa === null ? "—" : pct(taxa)}
+    <td className="py-1.5 text-right text-gray-100 tabular-nums align-top">
+      <span className="whitespace-nowrap">
+        {compradores}
+        <span className="text-gray-600">/{expostos}</span>
+        {/* `pct` já multiplica por 100 — recebe fração, não porcentagem. */}
+        <span className="text-gray-500 ml-1.5">
+          {taxa === null ? "—" : pct(taxa)}
+        </span>
       </span>
+      {partes.length > 0 && (
+        <span className="block text-[10px] text-gray-600 mt-0.5 whitespace-nowrap">
+          {partes.join(" · ")}
+        </span>
+      )}
     </td>
   );
 }
