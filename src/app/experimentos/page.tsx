@@ -900,6 +900,37 @@ function Funil({
     funil.by_method.find((x) => x.arm === arm && x.step === step && x.method === m)
       ?.users ?? 0;
 
+  /* Os métodos que a RPC devolver, na ordem de volume — a lista fixa
+     pix/cartão engolia boleto e carteiras (apple_pay entrou em 14/08): o
+     degrau existia na tabela e sumia da tela. */
+  const NOME_DO_METODO: Record<string, string> = {
+    pix: "Pix",
+    credit_card: "cartão",
+    boleto: "boleto",
+    apple_pay: "Apple Pay",
+    google_pay: "Google Pay",
+  };
+  const metodosVistos = Array.from(
+    new Set(
+      funil.by_method
+        .filter((x) => x.step === "escolheu_metodo")
+        .map((x) => x.method),
+    ),
+  ).sort(
+    (a, b) =>
+      metodo(controlAudience, "escolheu_metodo", b) +
+      metodo(variantAudience, "escolheu_metodo", b) -
+      (metodo(controlAudience, "escolheu_metodo", a) +
+        metodo(variantAudience, "escolheu_metodo", a)),
+  );
+  const mixDoBraco = (arm: string) =>
+    metodosVistos
+      .map(
+        (m) =>
+          `${metodo(arm, "escolheu_metodo", m)} ${NOME_DO_METODO[m] ?? m}`,
+      )
+      .join(" · ");
+
   return (
     <div className={CARD}>
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -988,18 +1019,14 @@ function Funil({
             </p>
           )}
 
-          <div className="mt-3 pt-3 border-t border-gray-800/50 text-[11px] text-gray-500">
-            Quem escolheu cada meio —{" "}
-            <span className="text-gray-400">
-              A: {metodo(controlAudience, "escolheu_metodo", "pix")} Pix ·{" "}
-              {metodo(controlAudience, "escolheu_metodo", "credit_card")} cartão
-            </span>
-            {" · "}
-            <span className="text-gray-400">
-              B: {metodo(variantAudience, "escolheu_metodo", "pix")} Pix ·{" "}
-              {metodo(variantAudience, "escolheu_metodo", "credit_card")} cartão
-            </span>
-          </div>
+          {metodosVistos.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-800/50 text-[11px] text-gray-500">
+              Quem escolheu cada meio —{" "}
+              <span className="text-gray-400">A: {mixDoBraco(controlAudience)}</span>
+              {" · "}
+              <span className="text-gray-400">B: {mixDoBraco(variantAudience)}</span>
+            </div>
+          )}
         </>
       )}
     </div>
