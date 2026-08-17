@@ -1277,6 +1277,12 @@ function Coortes({
         );
       })}
 
+      <MatrizCoortes
+        cohorts={todas}
+        controlAudience={controlAudience}
+        variantAudience={variantAudience}
+      />
+
       <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
         A taxa só aparece com pelo menos {PISO_DA_COORTE} expostos na célula —
         abaixo disso um comprador a mais move a conta em dezenas de pontos. A
@@ -1364,6 +1370,224 @@ function Celula({
         </span>
       )}
     </td>
+  );
+}
+
+/* --------------------------------------------- coortes: o cruzamento ----- */
+
+type CelulaDaMatriz = { exposed: number; buyers: number };
+
+/**
+ * A matriz histórico × idade da conta, um heatmap por braço.
+ *
+ * ## Por que ela existe
+ *
+ * As duas listas acima mostram MARGENS: "nunca assinou converte 4,9% no B" é a
+ * média de seis células que vão de 1,9% (conta nova) a 7,5% (6–12 meses). A
+ * média esconde ONDE o preço funciona — e foi exatamente a pergunta que
+ * apareceu: "as 14 do B que nunca assinaram têm conta há quanto tempo?". Só o
+ * cruzamento responde.
+ *
+ * ## Três escolhas que definem a leitura
+ *
+ * — A cor é a TAXA, não a quantidade. Cor pela quantidade faria 3/166 parecer
+ *   mais escura que 2/13, e a segunda é a que converte melhor.
+ * — A escala é COMPARTILHADA entre A e B: `taxaMax` sai das células dos dois
+ *   braços juntos. Se cada um tivesse a própria escala, o A "empatado"
+ *   pareceria tão escuro quanto o B, e comparar viraria ilusão.
+ * — Célula abaixo do piso fica SEM cor: só o número, em cinza. É a mesma trava
+ *   das listas — com 2 expostos e 1 comprador, pintar 50% seria pintar ruído.
+ *
+ * As colunas são as MESMAS nos dois heatmaps, mesmo quando vazias: alinhamento
+ * é o que permite olhar para cima e para baixo e comparar.
+ */
+function MatrizCoortes({
+  cohorts,
+  controlAudience,
+  variantAudience,
+}: {
+  cohorts: ExperimentCohorts["cohorts"];
+  controlAudience: string;
+  variantAudience: string;
+}) {
+  const cruz = cohorts.filter(
+    (c) => c.axis === "cruzamento" && c.hist_ord != null && c.idade_ord != null,
+  );
+  /* RPC antiga (sem o cruzamento) → o bloco simplesmente não aparece. As duas
+     pontas sobem separadas, e um campo que ainda não chegou não pode virar
+     tela quebrada. */
+  if (!cruz.length) return null;
+
+  /* Rótulos vêm dos EIXOS já presentes na resposta — um lugar só de nomes; a
+     matriz nunca chama de um nome o que a lista chama de outro. Filtra os
+     baldes sem ninguém em nenhum braço (ex.: "sem cadastro"), mas mantém as
+     colunas iguais nos dois heatmaps. */
+  const rotulos = (axis: CohortAxis) => {
+    const m = new Map<number, string>();
+    cohorts
+      .filter((c) => c.axis === axis && (c.exposed ?? 0) > 0)
+      .forEach((c) => m.set(c.ord, c.bucket));
+    return [...m.entries()].sort((x, y) => x[0] - y[0]);
+  };
+  const linhas = rotulos("historico");
+  const colunas = rotulos("idade_conta");
+  if (!linhas.length || !colunas.length) return null;
+
+  const indice = new Map<string, CelulaDaMatriz>();
+  cruz.forEach((c) =>
+    indice.set(`${c.arm}|${c.hist_ord}|${c.idade_ord}`, {
+      exposed: c.exposed ?? 0,
+      buyers: c.buyers ?? 0,
+    }),
+  );
+  const celula = (arm: string, h: number, i: number): CelulaDaMatriz =>
+    indice.get(`${arm}|${h}|${i}`) ?? { exposed: 0, buyers: 0 };
+
+  /* Escala compartilhada: a maior taxa entre as células COM base, dos dois
+     braços. Uma célula fora do piso não puxa a escala nem ganha cor. */
+  let taxaMax = 0;
+  for (const arm of [controlAudience, variantAudience]) {
+    for (const [h] of linhas) {
+      for (const [i] of colunas) {
+        const c = celula(arm, h, i);
+        if (c.exposed >= PISO_DA_COORTE) {
+          taxaMax = Math.max(taxaMax, c.buyers / c.exposed);
+        }
+      }
+    }
+  }
+
+  const bracos: [string, string][] = [
+    ["A · controle", controlAudience],
+    ["B · variante", variantAudience],
+  ];
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+        <p className="text-[11px] text-gray-400">
+          Onde estão os compradores — já tinha assinado? × há quanto tempo tem
+          conta
+        </p>
+        <span className="text-[10px] text-gray-600">
+          mais escuro = converte mais · sem cor = menos de {PISO_DA_COORTE}{" "}
+          expostos
+        </span>
+      </div>
+
+      {bracos.map(([titulo, arm]) => (
+        <div key={arm} className="mt-2 overflow-x-auto">
+          <table className="text-xs min-w-[560px] w-full">
+            <thead>
+              <tr className="text-gray-500 text-[10px]">
+                <th className="text-left font-normal pb-1 pr-2 whitespace-nowrap">
+                  {titulo}
+                </th>
+                {colunas.map(([i, nome]) => (
+                  <th key={i} className="font-normal pb-1 px-1 text-center">
+                    {nome}
+                  </th>
+                ))}
+                {/* A margem que reproduz a lista de cima. Se não bater, o
+                    leitor vê — é a verificação do método, visível na tela. */}
+                <th className="font-normal pb-1 pl-2 text-right text-gray-600">
+                  total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map(([h, nome]) => {
+                let expLinha = 0;
+                let compLinha = 0;
+                return (
+                  <tr key={h} className="border-t border-gray-800/50">
+                    <td className="py-0.5 pr-2 text-gray-300 whitespace-nowrap">
+                      {nome}
+                    </td>
+                    {colunas.map(([i]) => {
+                      const c = celula(arm, h, i);
+                      expLinha += c.exposed;
+                      compLinha += c.buyers;
+                      const comBase = c.exposed >= PISO_DA_COORTE;
+                      const p =
+                        comBase && taxaMax > 0
+                          ? c.buyers / c.exposed / taxaMax
+                          : 0;
+                      return (
+                        <td key={i} className="px-1 py-0.5">
+                          <div
+                            className={`rounded px-1.5 py-1 text-center tabular-nums whitespace-nowrap ${
+                              c.exposed === 0
+                                ? "text-gray-700"
+                                : comBase
+                                ? "text-gray-100"
+                                : "text-gray-500"
+                            }`}
+                            style={{
+                              /* Mesmo idioma do heatmap de retenção. */
+                              background: comBase
+                                ? `rgba(99,102,241,${0.12 + p * 0.6})`
+                                : "transparent",
+                            }}
+                            title={
+                              c.exposed === 0
+                                ? "ninguém exposto"
+                                : comBase
+                                ? `${pct(c.buyers / c.exposed)} de conversão`
+                                : `poucos expostos para taxa`
+                            }
+                          >
+                            {c.exposed === 0 ? "—" : `${c.buyers}/${c.exposed}`}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="py-0.5 pl-2 text-right tabular-nums text-gray-500 whitespace-nowrap">
+                      {compLinha}/{expLinha}
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* A outra margem: soma de cada coluna reproduz a lista "há
+                  quanto tempo tem conta". */}
+              <tr className="border-t border-gray-800/50 text-gray-600">
+                <td className="py-0.5 pr-2 text-[10px]">total</td>
+                {colunas.map(([i]) => {
+                  let e = 0;
+                  let b = 0;
+                  for (const [h] of linhas) {
+                    const c = celula(arm, h, i);
+                    e += c.exposed;
+                    b += c.buyers;
+                  }
+                  return (
+                    <td
+                      key={i}
+                      className="px-1 py-0.5 text-center tabular-nums text-[10px] whitespace-nowrap"
+                    >
+                      {e === 0 ? "—" : `${b}/${e}`}
+                    </td>
+                  );
+                })}
+                <td className="py-0.5 pl-2 text-right tabular-nums text-[10px] whitespace-nowrap">
+                  {(() => {
+                    let e = 0;
+                    let b = 0;
+                    for (const [h] of linhas)
+                      for (const [i] of colunas) {
+                        const c = celula(arm, h, i);
+                        e += c.exposed;
+                        b += c.buyers;
+                      }
+                    return `${b}/${e}`;
+                  })()}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1577,6 +1801,14 @@ function Metodologia({ attribDays }: { attribDays: number }) {
           vende mais — ler &ldquo;a maioria dos compradores do B nunca tinha
           assinado&rdquo; como efeito do preço é o erro que essa escolha de
           denominador evita.
+        </p>
+        <p>
+          <strong className="text-gray-300">A matriz</strong> cruza os dois
+          eixos: as listas mostram a margem, a matriz mostra <em>onde</em>. A cor
+          é a taxa dentro da célula, na mesma escala para A e B; célula com
+          pouca base fica sem cor, e as margens à direita e embaixo têm de bater
+          com as listas de cima — se não baterem, algo está contando gente
+          diferente.
         </p>
       </div>
     </details>
