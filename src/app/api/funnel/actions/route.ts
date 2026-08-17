@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 // Paginated fetch — walks pages of 1000 to bypass PostgREST's default cap.
 async function fetchAll<T>(
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   // Existing behavior: per-user
   if (email) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getFunnelAdmin()
       .from("funnel_actions")
       .select("*, funnel_rules(stage, next_stage, channel, subject)")
       .eq("user_email", email)
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
   // ── Pendentes: compute eligible users not yet contacted ──────────────────
   if (type === "pendentes") {
-    const { data: rule, error: ruleError } = await supabaseAdmin
+    const { data: rule, error: ruleError } = await getFunnelAdmin()
       .from("funnel_rules")
       .select("*")
       .eq("id", ruleId)
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     const [{ data: events }, { data: pastActions }] = await Promise.all([
       fetchAll<{ email: string | null; user_id: string | null; event: string; created_at: string; metadata: Record<string, any> | null }>(() =>
-        supabaseAdmin
+        getFunnelAdmin()
           .from("funnel_events")
           .select("email, user_id, event, created_at, metadata")
           .gte("created_at", rule.created_at)
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
           .order("created_at", { ascending: true })
       ),
       fetchAll<{ user_email: string; status: string }>(() =>
-        supabaseAdmin
+        getFunnelAdmin()
           .from("funnel_actions")
           .select("user_email, status")
           .eq("rule_id", ruleId)
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
 
   // ── Enviadas / Falhas ────────────────────────────────────────────────────
   const status = type === "falhas" ? "failed" : "sent";
-  const { data: actions, error } = await supabaseAdmin
+  const { data: actions, error } = await getFunnelAdmin()
     .from("funnel_actions")
     .select("user_email, channel, status, error, created_at")
     .eq("rule_id", ruleId)
@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
   const metaMap: Record<string, { name: string; phone: string }> = {};
 
   if (emails.length > 0) {
-    const { data: events } = await supabaseAdmin
+    const { data: events } = await getFunnelAdmin()
       .from("funnel_events")
       .select("email, metadata")
       .eq("event", "signup_completed")

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 interface AudienceFilters {
   professions?: string[];
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   };
 
   // ── 1. Fetch active rules ──────────────────────────────────
-  const { data: rules, error: rulesError } = await supabaseAdmin
+  const { data: rules, error: rulesError } = await getFunnelAdmin()
     .from("funnel_rules")
     .select("*")
     .eq("active", true)
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
   if (rulesError) {
     report.rules_error = rulesError.message;
     // Try without ordering by priority in case the column is missing
-    const { data: rulesNoOrder, error: rulesNoOrderError } = await supabaseAdmin
+    const { data: rulesNoOrder, error: rulesNoOrderError } = await getFunnelAdmin()
       .from("funnel_rules")
       .select("*")
       .eq("active", true);
@@ -85,12 +85,12 @@ export async function GET(request: NextRequest) {
   report.earliest_rule_created_at = earliestRuleDate;
 
   // Total count across all event types (for reference)
-  const { count: totalEventsCount } = await supabaseAdmin
+  const { count: totalEventsCount } = await getFunnelAdmin()
     .from("funnel_events")
     .select("*", { count: "exact", head: true });
 
   // Count after date filter (to show how many we'd miss without the filter)
-  const { count: filteredEventsCount } = await supabaseAdmin
+  const { count: filteredEventsCount } = await getFunnelAdmin()
     .from("funnel_events")
     .select("*", { count: "exact", head: true })
     .gte("created_at", earliestRuleDate)
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
   report.total_events_in_table = totalEventsCount;
   report.relevant_events_after_filter = filteredEventsCount;
 
-  const { data: events, error: eventsError } = await supabaseAdmin
+  const { data: events, error: eventsError } = await getFunnelAdmin()
     .from("funnel_events")
     .select("*")
     .gte("created_at", earliestRuleDate)
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
   report.events_by_type = eventTypeCounts;
 
   // ── 3. Fetch past actions ─────────────────────────────────
-  const { data: pastActions, error: actionsError } = await supabaseAdmin
+  const { data: pastActions, error: actionsError } = await getFunnelAdmin()
     .from("funnel_actions")
     .select("rule_id, user_email");
 

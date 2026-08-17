@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 /* Saiu daqui para @/lib/metabase quando a rota de ativação no plugin passou
    a precisar do mesmo acesso. Mesmo comportamento. */
 import { queryMetabase } from "@/lib/metabase";
@@ -11,7 +11,7 @@ export async function GET() {
     let page = 0;
     let allEvents: { email: string | null; event: string }[] = [];
     while (true) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getFunnelAdmin()
         .from("funnel_events")
         .select("email, event")
         .not("email", "is", null)
@@ -64,7 +64,7 @@ export async function GET() {
       metadata: { source: "metabase_sync", synced_at: new Date().toISOString() },
     }));
 
-    const { error } = await supabaseAdmin.from("funnel_events").insert(events);
+    const { error } = await getFunnelAdmin().from("funnel_events").insert(events);
 
     if (error) {
       console.error("Erro ao inserir first_download:", error);

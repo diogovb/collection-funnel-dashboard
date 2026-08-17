@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 const ICP_SOFTWARES_LC = new Set(["sketchup", "archicad", "revit"]);
 const ICP_PROFESSIONS_LC = new Set(["arquiteto", "arquiteto(a)", "designer de interiores", "designer_interiores", "projetista"]);
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const PAGE_SIZE = 1000;
 
     while (true) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getFunnelAdmin()
         .from("funnel_events")
         .select("id, metadata")
         .eq("event", "signup_completed")
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Update: non-ICP software → "nao_qualificado"
-      const { error: updateError } = await supabaseAdmin
+      const { error: updateError } = await getFunnelAdmin()
         .from("funnel_events")
         .update({ metadata: { ...m, crm_stage: newStage } })
         .eq("id", ev.id);

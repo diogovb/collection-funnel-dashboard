@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "id é obrigatório" }, { status: 400 });
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await getFunnelAdmin()
       .from("funnel_events")
       .delete()
       .eq("id", id);

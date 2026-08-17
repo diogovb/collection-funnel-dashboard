@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
     let email = rawEmail;
     if (!email && user_id) {
-      const { data: userData, error: authError } = await supabaseAdmin.auth.admin.getUserById(user_id);
+      const { data: userData, error: authError } = await getFunnelAdmin().auth.admin.getUserById(user_id);
       if (authError) {
         console.error("getUserById error:", authError);
         return NextResponse.json(
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "event_type inválido" }, { status: 400, headers: CORS_HEADERS });
     }
 
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await getFunnelAdmin()
       .from("funnel_events")
       .select("id")
       .eq("email", email)
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, skipped: true, message: "Event already exists for this email" }, { headers: CORS_HEADERS });
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await getFunnelAdmin()
       .from("funnel_events")
       .insert({
         event: event_type,

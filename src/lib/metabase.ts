@@ -6,12 +6,20 @@
  * onde vivia privado, quando a rota de ativação no plugin passou a precisar
  * do mesmo acesso.
  *
- * A chave sai de `METABASE_API_KEY` quando existir, com o valor antigo como
- * fallback para não quebrar o deploy atual enquanto a env não é configurada.
+ * A chave sai de `METABASE_API_KEY`, e SÓ de lá. O fallback com o valor antigo
+ * saiu em 17/08: ele existia "para não quebrar o deploy enquanto a env não é
+ * configurada", e o efeito foi a env nunca ser configurada — com a chave de um
+ * acesso ao Postgres de PRODUÇÃO commitada no repo por meses. Sem plano B, a
+ * rotação da chave rotaciona de verdade.
+ *
+ * ⚠️ Tirar do fonte não revoga: a chave antiga segue no histórico do git e
+ * válida até ser rotacionada no Metabase.
+ *
+ * A URL continua com padrão porque é endereço público, não credencial.
  */
-const METABASE_URL = process.env.METABASE_URL ?? "https://metabase.collection.com.br";
-const METABASE_API_KEY =
-  process.env.METABASE_API_KEY ?? "mb_HCdbdyTeP9uQMmbIndq4p1Il1ZXsRWeEavGejy2vitU=";
+const METABASE_URL =
+  process.env.METABASE_URL ?? "https://metabase.collection.com.br";
+const METABASE_API_KEY = process.env.METABASE_API_KEY;
 
 /** Collection PostgreSQL — PROD. */
 const DATABASE_ID = 10;
@@ -19,6 +27,15 @@ const DATABASE_ID = 10;
 export async function queryMetabase<T = Record<string, unknown>>(
   sql: string,
 ): Promise<T[]> {
+  /* A checagem é aqui, e não no corpo do módulo, para o `next build` não
+     quebrar numa máquina sem a env — quem chamar sem chave descobre no
+     request, com o nome da variável na mensagem. */
+  if (!METABASE_API_KEY) {
+    throw new Error(
+      "[metabase] Falta a variável de ambiente METABASE_API_KEY. " +
+        "Cadastre-a na Vercel — este módulo não tem fallback no código.",
+    );
+  }
   const res = await fetch(`${METABASE_URL}/api/dataset`, {
     method: "POST",
     headers: {

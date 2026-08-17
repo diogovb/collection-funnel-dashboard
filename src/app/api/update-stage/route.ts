@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "eventId e stage são obrigatórios" }, { status: 400 });
     }
 
-    const { data: event, error: fetchError } = await supabaseAdmin
+    const { data: event, error: fetchError } = await getFunnelAdmin()
       .from("funnel_events")
       .select("metadata")
       .eq("id", eventId)
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const currentMetadata = (event.metadata || {}) as Record<string, unknown>;
     const updatedMetadata = { ...currentMetadata, crm_stage: stage };
 
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await getFunnelAdmin()
       .from("funnel_events")
       .update({ metadata: updatedMetadata })
       .eq("id", eventId);

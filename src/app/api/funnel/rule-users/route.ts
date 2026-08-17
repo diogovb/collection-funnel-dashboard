@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 // GET /api/funnel/rule-users?rule_id=X&type=sent|failed|pendentes
 export async function GET(request: NextRequest) {
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (type === "sent" || type === "failed") {
-    const { data: actions, error } = await supabaseAdmin
+    const { data: actions, error } = await getFunnelAdmin()
       .from("funnel_actions")
       .select("user_email, channel, created_at, status")
       .eq("rule_id", ruleId)
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const metaMap: Record<string, { name?: string; phone?: string }> = {};
 
     if (emails.length > 0) {
-      const { data: events } = await supabaseAdmin
+      const { data: events } = await getFunnelAdmin()
         .from("funnel_events")
         .select("email, metadata")
         .eq("event", "signup_completed")
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
   }
 
   // type === "pendentes"
-  const { data: rule, error: ruleError } = await supabaseAdmin
+  const { data: rule, error: ruleError } = await getFunnelAdmin()
     .from("funnel_rules")
     .select("*")
     .eq("id", ruleId)
@@ -62,14 +62,14 @@ export async function GET(request: NextRequest) {
 
   if (ruleError || !rule) return NextResponse.json({ error: "Regra não encontrada" }, { status: 404 });
 
-  const { data: pastActions } = await supabaseAdmin
+  const { data: pastActions } = await getFunnelAdmin()
     .from("funnel_actions")
     .select("user_email")
     .eq("rule_id", ruleId);
 
   const contacted = new Set((pastActions || []).map((a) => a.user_email));
 
-  const { data: events } = await supabaseAdmin
+  const { data: events } = await getFunnelAdmin()
     .from("funnel_events")
     .select("email, user_id, event, created_at, metadata")
     .gte("created_at", rule.created_at)

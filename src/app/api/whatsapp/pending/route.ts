@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 50;
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   // Atomically pick N oldest pending jobs and increment attempts.
   // The CTE pattern guarantees that two concurrent pollers don't get the
   // same rows. (Supabase RPC is unnecessary — this runs as a single SQL stmt.)
-  const { data, error } = await supabaseAdmin.rpc("whatsapp_outbox_claim", { p_limit: limit });
+  const { data, error } = await getFunnelAdmin().rpc("whatsapp_outbox_claim", { p_limit: limit });
 
   if (error) {
     console.error("whatsapp/pending RPC error:", error);

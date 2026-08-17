@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 import { wrapEmailHTML } from "@/lib/email-template";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY!;
@@ -131,7 +131,7 @@ async function enqueueWhatsapp(args: {
 
   const eventId = `${args.ruleId}::${args.email}`;
 
-  const { error } = await supabaseAdmin.from("whatsapp_outbox").insert({
+  const { error } = await getFunnelAdmin().from("whatsapp_outbox").insert({
     event_id: eventId,
     rule_id: args.ruleId,
     email: args.email,
@@ -183,7 +183,7 @@ async function processQueue(): Promise<NextResponse> {
   try {
     // 1. Get all active rules (including created_at as the cutoff for eligible users)
     const { data: rules, error: rulesError } = await fetchAll<FunnelRule>(() =>
-      supabaseAdmin
+      getFunnelAdmin()
         .from("funnel_rules")
         .select("*")
         .eq("active", true)
@@ -205,7 +205,7 @@ async function processQueue(): Promise<NextResponse> {
     const lookbackDate = new Date(Date.now() - EVENTS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const eventsCutoff = lookbackDate > earliestRuleDate ? lookbackDate : earliestRuleDate;
     const { data: events, error: eventsError } = await fetchAll<FunnelEvent>(() =>
-      supabaseAdmin
+      getFunnelAdmin()
         .from("funnel_events")
         .select("*")
         .gte("created_at", eventsCutoff)
@@ -217,7 +217,7 @@ async function processQueue(): Promise<NextResponse> {
 
     // 3. Get all past actions to avoid duplicates (paginated)
     const { data: pastActions } = await fetchAll<{ rule_id: string; user_email: string }>(() =>
-      supabaseAdmin.from("funnel_actions").select("rule_id, user_email")
+      getFunnelAdmin().from("funnel_actions").select("rule_id, user_email")
     );
 
     const actionSet = new Set(
@@ -376,7 +376,7 @@ async function processQueue(): Promise<NextResponse> {
               ? "queued"
               : "sent";
 
-          await supabaseAdmin.from("funnel_actions").insert({
+          await getFunnelAdmin().from("funnel_actions").insert({
             rule_id: rule.id,
             user_email: email,
             user_id: null,

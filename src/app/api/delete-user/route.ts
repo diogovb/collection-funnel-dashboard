@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let query = supabaseAdmin.from("funnel_events").delete();
+    let query = getFunnelAdmin().from("funnel_events").delete();
 
     if (email) {
       query = query.eq("email", email);

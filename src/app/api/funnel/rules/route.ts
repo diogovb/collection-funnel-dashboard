@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 // GET - List all rules
 export async function GET() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getFunnelAdmin()
     .from("funnel_rules")
     .select("*")
     .order("priority", { ascending: false })
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "stage é obrigatório" }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getFunnelAdmin()
     .from("funnel_rules")
     .insert({
       stage,
@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest) {
 
   updates.updated_at = new Date().toISOString();
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getFunnelAdmin()
     .from("funnel_rules")
     .update(updates)
     .eq("id", id)
@@ -71,9 +71,9 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "id é obrigatório" }, { status: 400 });
 
   // Delete related actions first
-  await supabaseAdmin.from("funnel_actions").delete().eq("rule_id", id);
+  await getFunnelAdmin().from("funnel_actions").delete().eq("rule_id", id);
 
-  const { error } = await supabaseAdmin.from("funnel_rules").delete().eq("id", id);
+  const { error } = await getFunnelAdmin().from("funnel_rules").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
 }

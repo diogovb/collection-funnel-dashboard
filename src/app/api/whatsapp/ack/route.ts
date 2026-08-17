@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 function isAuthorized(request: NextRequest): boolean {
   const expected = process.env.WHATSAPP_BRIDGE_TOKEN;
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     update.sent_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getFunnelAdmin()
     .from("whatsapp_outbox")
     .update(update)
     .eq("event_id", event_id)
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   // delivery (sent/failed) instead of staying as "queued" forever.
   // Best effort: failure here doesn't fail the ack.
   if (data.rule_id) {
-    const { error: actionErr } = await supabaseAdmin
+    const { error: actionErr } = await getFunnelAdmin()
       .from("funnel_actions")
       .update({
         status,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   // (em_conversa, ativado, etc.) was moved manually by the operator and we
   // don't want to roll them back. Best effort.
   if (status === "sent") {
-    const { data: signupEvent, error: lookupErr } = await supabaseAdmin
+    const { data: signupEvent, error: lookupErr } = await getFunnelAdmin()
       .from("funnel_events")
       .select("id, metadata")
       .eq("email", data.email)
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       const meta = (signupEvent.metadata || {}) as Record<string, unknown>;
       const currentStage = (meta.crm_stage as string | undefined) ?? "novo";
       if (currentStage === "novo") {
-        const { error: crmErr } = await supabaseAdmin
+        const { error: crmErr } = await getFunnelAdmin()
           .from("funnel_events")
           .update({ metadata: { ...meta, crm_stage: "contato_iniciado" } })
           .eq("id", signupEvent.id);

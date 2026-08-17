@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getFunnelAdmin } from "@/lib/supabase-admin";
 
 // Paginated fetch — bypasses PostgREST's default 1000-row cap by walking
 // pages until a short page comes back. `buildQuery` must return a fresh
@@ -30,7 +30,7 @@ export async function GET() {
       created_at: string;
       user_email: string;
     }>(() =>
-      supabaseAdmin
+      getFunnelAdmin()
         .from("funnel_actions")
         .select("rule_id, status, created_at, user_email")
         .order("created_at", { ascending: false })
@@ -39,7 +39,7 @@ export async function GET() {
     if (actionsError) return NextResponse.json({ error: actionsError.message }, { status: 500 });
 
     // 2. Fetch active rules (to compute pendentes)
-    const { data: rules, error: rulesError } = await supabaseAdmin
+    const { data: rules, error: rulesError } = await getFunnelAdmin()
       .from("funnel_rules")
       .select("id, stage, next_stage, delay_minutes, channel, active, filters, created_at");
 
@@ -97,7 +97,7 @@ export async function GET() {
       created_at: string;
       metadata: Record<string, any> | null;
     }>(() =>
-      supabaseAdmin
+      getFunnelAdmin()
         .from("funnel_events")
         .select("email, user_id, event, created_at, metadata")
         .gte("created_at", earliestRuleDate)
