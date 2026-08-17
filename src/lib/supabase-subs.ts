@@ -257,9 +257,18 @@ export type ExperimentCohorts = {
   is_active: boolean;
   attrib_days: number;
   cohorts: {
+    /**
+     * `historico` e `idade_conta` são as duas listas; `cruzamento` é a matriz
+     * histórico × idade — que NÃO é um eixo (não entra em `COHORT_AXES`), é o
+     * produto dos dois. Como são independentes, o produto é uma partição: cada
+     * pessoa cai numa célula só, e a soma da matriz fecha com o braço.
+     */
     axis: string;
     ord: number;
     bucket: string;
+    /** Só no `cruzamento` os dois vêm preenchidos; a matriz indexa por eles. */
+    hist_ord?: number | null;
+    idade_ord?: number | null;
     arm: string;
     exposed: number;
     mature: number;
