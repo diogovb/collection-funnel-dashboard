@@ -417,6 +417,30 @@ export default function PluginSection() {
           no pipeline em 03/08, e o <code>platform</code> só passou a carimbar valor de
           plugin em 15/06.
         </p>
+        {/**
+          * ⚠️ Este aviso nasceu de um alarme falso — meu.
+          *
+          * Comparei "Entrou no plugin" (ClickHouse, ~4.000/semana estável) com
+          * as sessões do Supabase (1.716 → 3.690 na semana de 10/08) e li a
+          * diferença como o card estando errado. Não estava: são perguntas
+          * diferentes. Um usuário diário mantém a MESMA sessão e não gera linha
+          * nova, então a tabela de sessão mostra ~42% de quem realmente usou.
+          * E o salto dela coincide com o nascimento de `plugin_session_started`,
+          * zero em toda semana anterior — mudou a instrumentação, não a
+          * população.
+          *
+          * A coorte não se contamina com isso: para conta NOVA a primeira
+          * abertura sempre grava sessão (é o login). Provado comparando as duas
+          * réguas semana a semana — a diferença fica constante em ~5% e NÃO abre
+          * na semana do salto, que é o que denunciaria um buraco de cobertura.
+          */}
+        <p className="text-[11px] text-gray-600 mt-2">
+          Os quatro cards contam <strong>uso</strong> (quem abriu o plugin na
+          semana, ~4.000 estáveis desde junho). A coorte conta{" "}
+          <strong>primeira abertura</strong> de quem acabou de criar conta. São
+          perguntas diferentes sobre populações diferentes —{" "}
+          <strong>não somam nem se dividem uma pela outra</strong>.
+        </p>
       </div>
       )}
     </div>
