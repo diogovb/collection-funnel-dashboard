@@ -39,17 +39,20 @@ type Coorte = {
   /** Contas criadas naquela semana, já descontando quem tem menos de 48h. */
   novos: number;
   /**
-   * As duas populações, separadas de propósito.
+   * Duas ROTAS para o mesmo lugar — e as duas contam.
    *
-   * Quem se cadastra DENTRO do plugin abre o plugin por construção — o cadastro
-   * aconteceu lá. Somar os dois faz a métrica subir quando esse canal cresce,
-   * sem que o funil da web tenha melhorado em nada: foi o que pintou 25,5% na
-   * semana de 10/08, onde o funil da web havia feito 10,2%.
+   * A pergunta é "os novos usuários estão indo para o plugin?". Dá para chegar
+   * lá cadastrando na web e migrando, ou já se cadastrando dentro do plugin. Os
+   * dois respondem SIM, e o segundo é o mais forte — além de ser o que a
+   * campanha de Ads de instalação compra. A separação existe para explicar POR
+   * ONDE vieram, nunca para descontar.
    */
   webNovos: number;
   webAtivou: number;
   pluginNovos: number;
   pluginAtivou: number;
+  /** Web que migrou + todo mundo que já nasceu no plugin. */
+  ativouTotal: number;
   /** Cadastros que nunca abriram nada. Pesam no denominador da web. */
   semSessao: number;
   tocouAlgumDia: number;
@@ -63,7 +66,11 @@ type Coorte = {
   madura: boolean;
 };
 
-/** Taxa da coorte da WEB — a que mede se o nosso funil leva ao plugin. */
+/** A taxa do painel: de quem criou conta, quantos estão no plugin em 48h. */
+const pctTotal = (c: Coorte): number | null =>
+  c.novos > 0 ? (100 * c.ativouTotal) / c.novos : null;
+
+/** Só a web, para separar "o funil melhorou" de "a campanha trouxe gente". */
 const pctWeb = (c: Coorte): number | null =>
   c.webNovos > 0 ? (100 * c.webAtivou) / c.webNovos : null;
 
@@ -208,7 +215,7 @@ export default function PluginSection() {
   const penultima = fechadas.at(-2) ?? null;
   /* Semana sem base na web não vira régua nem manchete — não é "0%", é "não
      sei". */
-  const medidas = dados.coortes.filter((c) => pctWeb(c) != null);
+  const medidas = dados.coortes.filter((c) => pctTotal(c) != null);
   /* O número grande sai da última semana MADURA: a turma da semana em curso
      ainda não teve as 48h inteiras e viraria manchete por acidente.
      ⚠️ `picoCoorte` também só olha maduras — uma semana parcial com pct alto
@@ -217,7 +224,7 @@ export default function PluginSection() {
   const coorteUlt = fechadasMedidas.at(-1) ?? null;
   const coortePen = fechadasMedidas.at(-2) ?? null;
   const picoCoorte = Math.max(
-    ...fechadasMedidas.map((c) => pctWeb(c) as number),
+    ...fechadasMedidas.map((c) => pctTotal(c) as number),
     1,
   );
 
@@ -293,31 +300,32 @@ export default function PluginSection() {
           </span>
         </div>
         <p className="text-[11px] text-gray-500 mb-3">
-          A barra é de quem se cadastrou <strong>na web</strong> — é ela que mede
-          se o nosso funil leva ao plugin. Quem se cadastra dentro do plugin
-          aparece à parte, porque abre o plugin por definição.
+          Conta como &ldquo;foi ao plugin&rdquo; quem migrou da web <strong>e</strong>{" "}
+          quem já se cadastrou lá dentro — são duas rotas para o mesmo lugar, e a
+          segunda é a que a campanha de instalação compra. A quebra à direita diz
+          por onde vieram.
         </p>
 
-        {coorteUlt && pctWeb(coorteUlt) != null && (
+        {coorteUlt && pctTotal(coorteUlt) != null && (
           <div className="flex items-baseline gap-3 mb-4 flex-wrap">
             <span className="text-3xl font-bold tabular-nums">
-              {pctWeb(coorteUlt)!.toFixed(1)}%
+              {pctTotal(coorteUlt)!.toFixed(1)}%
             </span>
             <Delta
-              atual={pctWeb(coorteUlt)}
-              anterior={coortePen ? pctWeb(coortePen) : null}
-              base={coortePen?.webNovos ?? null}
+              atual={pctTotal(coorteUlt)}
+              anterior={coortePen ? pctTotal(coortePen) : null}
+              base={coortePen?.novos ?? null}
             />
             <span className="text-xs text-gray-500">
-              {nf(coorteUlt.webAtivou)} de {nf(coorteUlt.webNovos)} cadastros da web
-              na semana de {diaMes(coorteUlt.semana)}
+              {nf(coorteUlt.ativouTotal)} de {nf(coorteUlt.novos)} contas criadas na
+              semana de {diaMes(coorteUlt.semana)}
             </span>
           </div>
         )}
 
         <div className="space-y-2">
           {dados.coortes.map((c) => {
-            const pct = pctWeb(c);
+            const pct = pctTotal(c);
             return (
               <div
                 key={c.semana}
@@ -326,7 +334,10 @@ export default function PluginSection() {
                 <span className="w-12 shrink-0 text-gray-500 tabular-nums">
                   {diaMes(c.semana)}
                   {!c.madura && (
-                    <span className="ml-1 text-[10px]" title="a turma ainda não teve 48h inteiras">
+                    <span
+                      className="ml-1 text-[10px]"
+                      title="a turma ainda não teve 48h inteiras — serve para olhar, não para comparar"
+                    >
                       parcial
                     </span>
                   )}
@@ -344,13 +355,12 @@ export default function PluginSection() {
                 <span className="w-12 shrink-0 text-right font-medium text-gray-200 tabular-nums">
                   {pct == null ? "—" : `${pct.toFixed(1)}%`}
                 </span>
-                <span className="w-40 shrink-0 text-right text-gray-500 tabular-nums">
-                  {pct == null ? `${nf(c.novos)} contas` : `${nf(c.webAtivou)} de ${nf(c.webNovos)} da web`}
-                  {c.pluginNovos > 0 && (
-                    <span className="block text-[10px] text-gray-600">
-                      + {nf(c.pluginNovos)} cadastrados no plugin
-                    </span>
-                  )}
+                <span className="w-44 shrink-0 text-right text-gray-500 tabular-nums">
+                  {nf(c.ativouTotal)} de {nf(c.novos)}
+                  <span className="block text-[10px] text-gray-600">
+                    {nf(c.pluginNovos)} pelo plugin · {nf(c.webAtivou)} da web
+                    {pctWeb(c) != null && ` (${pctWeb(c)!.toFixed(1)}%)`}
+                  </span>
                 </span>
               </div>
             );
