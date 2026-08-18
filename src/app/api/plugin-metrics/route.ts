@@ -52,9 +52,20 @@ type LinhaSemana = {
   baixaram_instalador: string;
 };
 
+/**
+ * O começo da série, ancorado na SEGUNDA-FEIRA.
+ *
+ * ⚠️ Sem o recuo até segunda, o corte cai num dia qualquer da semana e a
+ * PRIMEIRA linha nasce curta: as duas pontas agrupam por segunda
+ * (`toMonday` no ClickHouse, `date_trunc('week')` no Postgres), então uma data
+ * de terça joga os cadastros no balde da segunda anterior — sem a segunda em
+ * si. Medido: a linha 08/06 mostrava 693 contas onde a semana inteira tem 801.
+ * Uma linha 13% menor abre a série parecendo um vale que não existiu.
+ */
 function inicioDaSerie(): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - SEMANAS * 7);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   const iso = d.toISOString().slice(0, 10);
   return iso < INICIO ? INICIO : iso;
 }
@@ -81,29 +92,6 @@ WHERE event_date >= ${chDate(desde)} AND user_id != ''
 GROUP BY semana ORDER BY semana`;
 }
 
-/**
- * O instante do PRIMEIRO toque de cada pessoa no plugin.
- *
- * Uma linha por pessoa (~8 mil na janela de 10 semanas). Quem cruza com a data
- * de cadastro é o Node, porque as duas pontas moram em bancos diferentes: o
- * evento no ClickHouse, a conta no Supabase de assinaturas.
- *
- * ⚠️ Este cruzamento existe por causa de um erro real que esta rota cometia.
- * A versão anterior definia a coorte como "primeira vez que a pessoa aparece
- * nos eventos", e isso NÃO é cadastro: quem já tinha conta e só voltou a logar
- * entrava como "usuário novo" — e essa gente abre o plugin muito mais que um
- * recém-cadastrado. O número saía inflado (33% onde a verdade era 8,5%) e,
- * pior, inflado de forma DESIGUAL entre as semanas, desenhando uma queda que
- * não existia. Só a data de criação da conta responde "de quem se cadastrou".
- */
-function sqlPrimeiroToqueNoPlugin(desde: string): string {
-  return `
-SELECT user_id,
-       toUnixTimestamp64Milli(min(timestamp)) AS ms
-FROM events_distributed
-WHERE user_id != '' AND event_date >= ${chDate(desde)} AND ${PLUGIN}
-GROUP BY user_id`;
-}
 
 /**
  * Em que dias a telemetria de plugin esteve VIVA.
@@ -158,31 +146,39 @@ function segundaDaSemana(iso: string): string {
 }
 
 /**
- * Os cadastros de verdade: uma linha por conta criada, com a data.
+ * A coorte do plugin, inteira, numa RPC do MESMO banco.
  *
- * Vem do Supabase de ASSINATURAS (o mesmo cliente que a aba de experimentos já
- * usa), e não do funil — o `funnel_events` guarda o id do LEGADO, que não casa
- * com o `user_id` do ClickHouse. O que casa é o id do Supabase.
+ * Antes o denominador vinha de `profiles` (Supabase) e o numerador de
+ * `events_distributed` (ClickHouse), juntados em memória por
+ * `profiles.id === events.user_id`. Essa igualdade nunca foi verificada — e se
+ * falhasse, o numerador desabava sem erro nenhum, só com percentual baixo.
+ *
+ * `user_platform_sessions` mede a mesma coisa no mesmo banco: 119.010 sessões,
+ * ZERO órfãs. O cruzamento deixou de ser premissa e virou JOIN, e o piso das
+ * 48h e a separação web/plugin passaram a viver em SQL, onde dá para testar.
+ * Ver `20260818150000_coorte_do_plugin.sql`.
  */
-async function buscarCadastros(
-  desde: string,
-): Promise<{ id: string; created_at: string }[]> {
-  const sb = getSubsClient();
-  const PAGINA = 1000; /* teto do PostgREST; passar disso é cortado em silêncio */
-  const todos: { id: string; created_at: string }[] = [];
-  for (let p = 0; p < 60; p += 1) {
-    const { data, error } = await sb
-      .from("profiles")
-      .select("id, created_at")
-      .gte("created_at", `${desde}T00:00:00Z`)
-      .order("created_at", { ascending: true })
-      .range(p * PAGINA, (p + 1) * PAGINA - 1);
-    if (error) throw new Error(`profiles: ${error.message}`);
-    const lote = data ?? [];
-    todos.push(...(lote as { id: string; created_at: string }[]));
-    if (lote.length < PAGINA) break;
-  }
-  return todos;
+type CoorteDoPlugin = {
+  semana: string;
+  novos: number;
+  webNovos: number;
+  webAtivou: number;
+  pluginNovos: number;
+  pluginAtivou: number;
+  semSessao: number;
+  tocouAlgumDia: number;
+  madura: boolean;
+};
+
+async function buscarCoortes(desde: string): Promise<CoorteDoPlugin[]> {
+  const { data, error } = await getSubsClient().rpc("admin_plugin_cohorts", {
+    p_desde: desde,
+    p_horas: 48,
+  });
+  if (error) throw new Error(`admin_plugin_cohorts: ${error.message}`);
+  return ((data as { coortes?: CoorteDoPlugin[] } | null)?.coortes ?? []).map(
+    (c) => ({ ...c, semana: String(c.semana).slice(0, 10) }),
+  );
 }
 
 /**
@@ -208,55 +204,6 @@ function diasCegos(dias: { dia: string; plugin: string; eventos: string }[]) {
   );
 }
 
-/**
- * De cada turma de cadastro, quantos abriram o plugin em até 48h.
- *
- * As 48h fecham a janela no mesmo tamanho para todas as semanas — sem isso, a
- * semana mais velha ganha só por ter tido mais tempo de eventualmente instalar.
- */
-function montarCoortes(
-  cadastros: { id: string; created_at: string }[],
-  toques: { user_id: string; ms: string }[],
-  dias: { dia: string; plugin: string; eventos: string }[],
-) {
-  const primeiroToque = new Map(toques.map((t) => [t.user_id, Number(t.ms)]));
-  const cegos = diasCegos(dias);
-
-  const agora = Date.now();
-  const acc = new Map<string, { novos: number; em48h: number; algumDia: number }>();
-  for (const c of cadastros) {
-    const nasceu = Date.parse(c.created_at);
-    if (!Number.isFinite(nasceu)) continue;
-    /* Quem se cadastrou há menos de 48h ainda pode chegar: fora da conta. */
-    if (agora - nasceu < H48) continue;
-    const k = segundaDaSemana(c.created_at);
-    const s = acc.get(k) ?? { novos: 0, em48h: 0, algumDia: 0 };
-    s.novos += 1;
-    const t = primeiroToque.get(c.id);
-    if (t !== undefined) {
-      s.algumDia += 1;
-      if (t - nasceu <= H48) s.em48h += 1;
-    }
-    acc.set(k, s);
-  }
-
-  return [...acc.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([coorte, s]) => {
-      const medivel = !temDiaCego(coorte, cegos, 9);
-      return {
-        coorte,
-        /* Semana do cadastro ainda em curso: a turma não está completa e o
-           denominador cresce até domingo. Serve para olhar, não para comparar. */
-        completa: semanaCompleta(coorte),
-        novos: s.novos,
-        foramAoPlugin: medivel ? s.algumDia : null,
-        pluginEm48h: medivel ? s.em48h : null,
-        pct: medivel && s.novos ? (100 * s.em48h) / s.novos : null,
-      };
-    });
-}
-
 /** Semana que ainda não fechou some da comparação — está sempre "perdendo". */
 function semanaCompleta(segunda: string): boolean {
   const fim = new Date(`${segunda}T00:00:00.000Z`);
@@ -265,25 +212,41 @@ function semanaCompleta(segunda: string): boolean {
 }
 
 export async function GET() {
-  if (!clickhouseConfigurado()) {
-    return NextResponse.json(
-      {
-        error: "ClickHouse não configurado",
-        detalhe: new ClickHouseNaoConfigurado().message,
-      },
-      { status: 503 },
-    );
-  }
-
   const desde = inicioDaSerie();
+
+  /**
+   * A COORTE não depende mais do ClickHouse — vive inteira no Supabase.
+   *
+   * Enquanto ela era montada em memória com os toques do ClickHouse, um 503
+   * aqui derrubava a seção toda com razão. Agora derrubaria à toa: sem
+   * ClickHouse ficam faltando os quatro cards e a tabela crua, e a coorte
+   * continua medível. Então a rota degrada em vez de sumir.
+   */
+  if (!clickhouseConfigurado()) {
+    try {
+      const coortes = await buscarCoortes(desde);
+      return NextResponse.json({
+        atualizadoEm: new Date().toISOString(),
+        desde,
+        semanas: [],
+        primeiraSemanaMedida: null,
+        coortes,
+        avisoClickhouse: new ClickHouseNaoConfigurado().message,
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: "ClickHouse não configurado e a coorte falhou", detalhe: String(error) },
+        { status: 503 },
+      );
+    }
+  }
 
   try {
     /* Em paralelo: cada consulta leva ~6s no volume atual. */
-    const [linhas, toques, dias, cadastros] = await Promise.all([
+    const [linhas, dias, coortes] = await Promise.all([
       chQuery<LinhaSemana>(sqlSemanas(desde)),
-      chQuery<{ user_id: string; ms: string }>(sqlPrimeiroToqueNoPlugin(desde)),
       chQuery<{ dia: string; plugin: string; eventos: string }>(sqlDiasVivos(desde)),
-      buscarCadastros(desde),
+      buscarCoortes(desde),
     ]);
 
     /**
@@ -339,7 +302,7 @@ export async function GET() {
         baixaramInstalador: instalador[i],
       })),
       primeiraSemanaMedida,
-      coortes: montarCoortes(cadastros, toques, dias),
+      coortes,
     });
   } catch (error) {
     console.error("Erro em plugin-metrics:", error);
