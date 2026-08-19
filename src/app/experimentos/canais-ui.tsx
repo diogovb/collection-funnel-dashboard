@@ -1056,12 +1056,14 @@ export function SecaoCanais({
   canalDoUsuario,
   controlAudience,
   variantAudience,
+  cruzamentoErro,
 }: {
   painel: PainelDeCanais;
   exposicoes?: Exposicoes | null;
   canalDoUsuario?: Map<string, string> | null;
   controlAudience?: string;
   variantAudience?: string;
+  cruzamentoErro?: string | null;
 }) {
   const campanhas = painel.campanhas
     .filter((c) => c.contas >= PISO_DO_CANAL)
@@ -1104,16 +1106,30 @@ export function SecaoCanais({
       <CanalXPlugin painel={painel} />
 
       {!!exposicoes &&
-        !!canalDoUsuario &&
-        !!controlAudience &&
-        !!variantAudience && (
-          <CanalPorBraco
-            exposicoes={exposicoes}
-            canalDoUsuario={canalDoUsuario}
-            controlAudience={controlAudience}
-            variantAudience={variantAudience}
-          />
-        )}
+      !!canalDoUsuario &&
+      !!controlAudience &&
+      !!variantAudience ? (
+        <CanalPorBraco
+          exposicoes={exposicoes}
+          canalDoUsuario={canalDoUsuario}
+          controlAudience={controlAudience}
+          variantAudience={variantAudience}
+        />
+      ) : (
+        /* Uma linha, e não o nada de antes: bloco que some sem dizer nada é
+           indistinguível de bloco que nunca foi escrito — e foi exatamente
+           isso que me travou o diagnóstico no primeiro deploy. */
+        <div className={`${CARD} text-[11px] text-gray-500`}>
+          <span className="text-gray-400">Canal × braço do teste de preço</span> —
+          não deu para cruzar agora
+          {cruzamentoErro ? (
+            <span className="font-mono text-gray-600 break-all"> ({cruzamentoErro})</span>
+          ) : (
+            <> (nenhuma exposição com origem conhecida no período)</>
+          )}
+          . O resto da seção não depende disso.
+        </div>
+      )}
 
       <Tabelinha
         titulo="Qual campanha traz cadastro que assina"

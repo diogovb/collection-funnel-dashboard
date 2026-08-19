@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clickhouseConfigurado, ClickHouseNaoConfigurado } from "@/lib/clickhouse";
-import { carregarCanais, JANELA_PADRAO } from "@/lib/canais";
+import { canaisPorUsuario, carregarCanais, JANELA_PADRAO } from "@/lib/canais";
+import { fetchExposicoes } from "@/lib/supabase-subs";
 
 /**
  * O mesmo painel de canais que a tela mostra, em JSON.
@@ -37,7 +38,40 @@ export async function GET(req: NextRequest) {
   const janela = Number.isFinite(bruto) && bruto > 0 ? bruto : JANELA_PADRAO;
 
   try {
-    return NextResponse.json(await carregarCanais(janela));
+    const painel = await carregarCanais(janela);
+
+    /* `?cruzamento=1` exercita as DUAS fontes extras do bloco de A/B e diz
+       o que cada uma respondeu. Fica atras de um parametro porque dobra o
+       custo da rota — e existe porque aquele bloco degrada em silencio: sem
+       isto, "o bloco nao apareceu" nao tem como virar diagnostico. */
+    if (req.nextUrl.searchParams.get("cruzamento")) {
+      const chave = req.nextUrl.searchParams.get("exp") || "preco_2026_08";
+      const [mapa, expo] = await Promise.allSettled([
+        canaisPorUsuario(),
+        fetchExposicoes(chave, janela),
+      ]);
+      return NextResponse.json({
+        ...painel,
+        cruzamento: {
+          canaisPorUsuario:
+            mapa.status === "fulfilled"
+              ? { ok: true, usuarios: mapa.value.size }
+              : { ok: false, erro: String(mapa.reason).slice(0, 500) },
+          exposicoes:
+            expo.status === "fulfilled"
+              ? {
+                  ok: true,
+                  chave,
+                  expostos: expo.value.usuarios.length,
+                  desde: expo.value.desde,
+                  compradores: expo.value.usuarios.filter((u) => u.comprou).length,
+                }
+              : { ok: false, erro: String(expo.reason).slice(0, 500) },
+        },
+      });
+    }
+
+    return NextResponse.json(painel);
   } catch (error) {
     console.error("Erro em canais:", error);
     return NextResponse.json(
