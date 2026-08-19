@@ -399,7 +399,7 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
     aindaMaturando += n(linha.contas_todas) - n(linha.contas);
 
     if (linha.campanha) {
-      const chave = `${canal} ${linha.campanha}`;
+      const chave = `${canal}\u0000${linha.campanha}`;
       const c = porCampanha.get(chave) ?? {
         canal,
         campanha: linha.campanha,
@@ -421,7 +421,7 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
       acumular(porLanding, linha.landing || "não informado", linha);
     }
 
-    const chaveSemana = `${linha.semana} ${canal}`;
+    const chaveSemana = `${linha.semana}\u0000${canal}`;
     const s = porSemana.get(chaveSemana) ?? {
       semana: linha.semana,
       canal,

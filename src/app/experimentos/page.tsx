@@ -54,7 +54,7 @@ import { CanaisIndisponiveis, SecaoCanais } from "./canais-ui";
  */
 export const revalidate = 300;
 /* A leitura por canal varre ~60 dias de eventos no ClickHouse. O banco mata a
-   consulta em 45 s e o fetch aborta em 55 s; sem este teto a funcao morreria
+   consulta em 45 s e o fetch aborta em 55 s; sem este teto a função morreria
    antes dos dois e o erro apontaria para o lugar errado. */
 export const maxDuration = 60;
 
@@ -120,17 +120,17 @@ export default async function ExperimentosPage({ searchParams }: Props) {
     coortes = null;
   }
 
-  /* Aquisicao por canal. Ao contrario do funil e das coortes, o ERRO aqui nao
-     some em silencio: este bloco responde a pergunta principal da tela, e um
-     bloco ausente se leria como "nao tem dado". Mas ele tambem nao pode
-     derrubar a pagina — por isso vira card vermelho, e nao throw. */
+  /* Aquisição por canal. Ao contrário do funil e das coortes, o ERRO aqui não
+     some em silêncio: este bloco responde à pergunta principal da tela, e um
+     bloco ausente se leria como "não tem dado". Mas ele também não pode
+     derrubar a página — por isso vira card vermelho, e não throw. */
   let canais: PainelDeCanais | null = null;
   let canaisErro: string | null = null;
   let canalDoUsuario: Map<string, string> | null = null;
   let exposicoes: Exposicoes | null = null;
   {
-    /* As tres em paralelo, e nao em sequencia: as duas do ClickHouse varrem
-       a MESMA janela de eventos, entao enfileira-las dobraria o tempo de
+    /* As três em paralelo, e não em sequência: as duas do ClickHouse varrem
+       a MESMA janela de eventos, então enfileirá-las dobraria o tempo de
        parede sem economizar leitura nenhuma. `allSettled` porque cada uma
        tem um destino diferente quando falha. */
     const [agregado, mapa, expo] = await Promise.allSettled([
@@ -146,9 +146,9 @@ export default async function ExperimentosPage({ searchParams }: Props) {
           ? agregado.reason.message
           : String(agregado.reason);
 
-    /* Estas duas so alimentam o cruzamento com o braco. Se falharem, aquele
-       bloco some e o resto da secao continua de pe — ele e leitura extra,
-       nao o produto da tela. */
+    /* Estas duas só alimentam o cruzamento com o braço. Se falharem, aquele
+       bloco some e o resto da seção continua de pé — ele é leitura extra,
+       não o produto da tela. */
     if (mapa.status === "fulfilled") canalDoUsuario = mapa.value;
     if (expo.status === "fulfilled") exposicoes = expo.value;
   }
@@ -228,14 +228,14 @@ function Cabecalho({ report }: { report: ExperimentReport }) {
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {/* A secao de aquisicao mora no fim da pagina de proposito — ela mede
-            outro universo. A ancora existe para quem entra aqui procurando por
-            ela nao precisar rolar a tela inteira para descobrir que existe. */}
+        {/* A seção de aquisição mora no fim da página de propósito — ela mede
+            outro universo. A âncora existe para quem entra aqui procurando por
+            ela não precisar rolar a tela inteira para descobrir que existe. */}
         <a
           href="#aquisicao"
           className="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-600 transition-colors"
         >
-          Aquisicao por canal ↓
+          Aquisição por canal ↓
         </a>
         <span
           className={
