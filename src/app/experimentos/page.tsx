@@ -14,6 +14,8 @@ import {
   type ExperimentFunnel,
   type ExperimentReport,
   type FunnelStep,
+  fetchExposicoes,
+  type Exposicoes,
 } from "@/lib/supabase-subs";
 import {
   bootstrapRatio,
@@ -26,6 +28,12 @@ import {
   statsFromHistogram,
   wilson,
 } from "@/lib/stats";
+import {
+  canaisPorUsuario,
+  carregarCanais,
+  type PainelDeCanais,
+} from "@/lib/canais";
+import { CanaisIndisponiveis, SecaoCanais } from "./canais-ui";
 
 /**
  * Acompanhamento de testes A/B, desenhado para uma pergunta só: **já dá para
@@ -45,6 +53,10 @@ import {
  * segundos — nada de polling.
  */
 export const revalidate = 300;
+/* A leitura por canal varre ~60 dias de eventos no ClickHouse. O banco mata a
+   consulta em 45 s e o fetch aborta em 55 s; sem este teto a função morreria
+   antes dos dois e o erro apontaria para o lugar errado. */
+export const maxDuration = 60;
 
 const CARD =
   "bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50";
@@ -108,6 +120,39 @@ export default async function ExperimentosPage({ searchParams }: Props) {
     coortes = null;
   }
 
+  /* Aquisição por canal. Ao contrário do funil e das coortes, o ERRO aqui não
+     some em silêncio: este bloco responde à pergunta principal da tela, e um
+     bloco ausente se leria como "não tem dado". Mas ele também não pode
+     derrubar a página — por isso vira card vermelho, e não throw. */
+  let canais: PainelDeCanais | null = null;
+  let canaisErro: string | null = null;
+  let canalDoUsuario: Map<string, string> | null = null;
+  let exposicoes: Exposicoes | null = null;
+  {
+    /* As três em paralelo, e não em sequência: as duas do ClickHouse varrem
+       a MESMA janela de eventos, então enfileirá-las dobraria o tempo de
+       parede sem economizar leitura nenhuma. `allSettled` porque cada uma
+       tem um destino diferente quando falha. */
+    const [agregado, mapa, expo] = await Promise.allSettled([
+      carregarCanais(attribDays),
+      canaisPorUsuario(),
+      fetchExposicoes(key, attribDays),
+    ]);
+
+    if (agregado.status === "fulfilled") canais = agregado.value;
+    else
+      canaisErro =
+        agregado.reason instanceof Error
+          ? agregado.reason.message
+          : String(agregado.reason);
+
+    /* Estas duas só alimentam o cruzamento com o braço. Se falharem, aquele
+       bloco some e o resto da seção continua de pé — ele é leitura extra,
+       não o produto da tela. */
+    if (mapa.status === "fulfilled") canalDoUsuario = mapa.value;
+    if (expo.status === "fulfilled") exposicoes = expo.value;
+  }
+
   return (
     <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-4">
       <Cabecalho report={report} />
@@ -145,6 +190,17 @@ export default async function ExperimentosPage({ searchParams }: Props) {
         </>
       )}
       <Saude report={report} controle={controle} variante={variante} />
+      {canais ? (
+        <SecaoCanais
+          painel={canais}
+          exposicoes={exposicoes}
+          canalDoUsuario={canalDoUsuario}
+          controlAudience={exp.control_audience}
+          variantAudience={exp.variant_audience}
+        />
+      ) : (
+        <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />
+      )}
       <Metodologia attribDays={report.experiment.attrib_days} />
     </main>
   );
@@ -171,15 +227,26 @@ function Cabecalho({ report }: { report: ExperimentReport }) {
           {desde ? ` · ${dias} ${dias === 1 ? "dia" : "dias"} rodando` : ""}
         </p>
       </div>
-      <span
-        className={
-          exp.is_active
-            ? "px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-            : "px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700"
-        }
-      >
-        {exp.is_active ? "No ar" : "Desligado"}
-      </span>
+      <div className="flex items-center gap-2">
+        {/* A seção de aquisição mora no fim da página de propósito — ela mede
+            outro universo. A âncora existe para quem entra aqui procurando por
+            ela não precisar rolar a tela inteira para descobrir que existe. */}
+        <a
+          href="#aquisicao"
+          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-600 transition-colors"
+        >
+          Aquisição por canal ↓
+        </a>
+        <span
+          className={
+            exp.is_active
+              ? "px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+              : "px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700"
+          }
+        >
+          {exp.is_active ? "No ar" : "Desligado"}
+        </span>
+      </div>
     </div>
   );
 }

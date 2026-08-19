@@ -320,3 +320,127 @@ export async function fetchExperimentCohorts(
   if (error) throw new Error(`admin_experiment_cohorts: ${error.message}`);
   return data as ExperimentCohorts;
 }
+
+/* ------------------------------------------ exposições, uma por pessoa ---- */
+
+export type ExposicaoDeUsuario = {
+  userId: string;
+  arm: string;
+  comprou: boolean;
+  receitaCents: number;
+};
+
+export type Exposicoes = {
+  experimentKey: string;
+  attribDays: number;
+  /** Primeira exposição registrada — o relógio para estimar quando uma célula terá base. */
+  desde: string | null;
+  usuarios: ExposicaoDeUsuario[];
+};
+
+/**
+ * Lê TODAS as linhas de uma consulta paginando na mão.
+ *
+ * ⚠️ O PostgREST corta em 1.000 linhas e não avisa: a resposta volta 200, com
+ * mil linhas, e a diferença some. Hoje são ~1.544 exposições — já passou do
+ * corte, então sem isto o cruzamento por braço perderia um terço da base e
+ * pareceria apenas "um experimento menor do que eu lembrava".
+ */
+async function todasAsLinhas<T>(
+  monta: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  rotulo: string,
+): Promise<T[]> {
+  const PAGINA = 1000;
+  const tudo: T[] = [];
+  for (let pagina = 0; ; pagina += 1) {
+    const de = pagina * PAGINA;
+    const { data, error } = await monta(de, de + PAGINA - 1);
+    if (error) throw new Error(`${rotulo}: ${error.message}`);
+    const linhas = data ?? [];
+    tudo.push(...linhas);
+    if (linhas.length < PAGINA) return tudo;
+    /* Trava de segurança: 50 mil linhas aqui é sintoma de filtro que caiu, e
+       um laço infinito derruba a página em vez de mostrar o problema. */
+    if (tudo.length >= 50_000) return tudo;
+  }
+}
+
+/**
+ * Uma linha por pessoa exposta ao experimento, com o braço e se comprou.
+ *
+ * Existe para cruzar o braço com o CANAL de aquisição, que vive no ClickHouse —
+ * e o cruzamento acontece em memória, no servidor, porque os dois lados são
+ * pequenos (1,5 mil exposições, algumas centenas de faturas) e porque copiar
+ * uma classificação derivada para dentro do Postgres criaria uma segunda fonte
+ * de verdade que derreteria na primeira mudança de regra.
+ *
+ * A régua da compra é a mesma do `admin_experiment_report`: fatura `paid`,
+ * sem `credit_package_id` (crédito de IA é outro produto e inflava o placar
+ * dos dois braços), dentro da janela de atribuição contada a partir da
+ * exposição — não do cadastro.
+ */
+export async function fetchExposicoes(
+  experimentKey: string,
+  attribDays = 14,
+): Promise<Exposicoes> {
+  const db = getSubsClient();
+
+  const exposicoes = await todasAsLinhas<{
+    user_id: string;
+    arm: string;
+    first_seen_at: string;
+  }>(
+    (de, ate) =>
+      db
+        .from("experiment_exposures")
+        .select("user_id,arm,first_seen_at")
+        .eq("experiment_key", experimentKey)
+        .order("first_seen_at", { ascending: true })
+        .range(de, ate),
+    "experiment_exposures",
+  );
+
+  if (!exposicoes.length)
+    return { experimentKey, attribDays, desde: null, usuarios: [] };
+
+  const inicio = exposicoes[0].first_seen_at;
+  const faturas = await todasAsLinhas<{
+    user_id: string;
+    created_at: string;
+    amount: number | null;
+  }>(
+    (de, ate) =>
+      db
+        .from("subscription_invoices")
+        .select("user_id,created_at,amount")
+        .eq("status", "paid")
+        .is("credit_package_id", null)
+        .gte("created_at", inicio)
+        .order("created_at", { ascending: true })
+        .range(de, ate),
+    "subscription_invoices",
+  );
+
+  const porUsuario = new Map<string, { quando: number; cents: number }[]>();
+  for (const f of faturas) {
+    const lista = porUsuario.get(f.user_id) ?? [];
+    lista.push({ quando: Date.parse(f.created_at), cents: Number(f.amount ?? 0) });
+    porUsuario.set(f.user_id, lista);
+  }
+
+  const janelaMs = attribDays * 86400000;
+  const usuarios = exposicoes.map((e) => {
+    const t0 = Date.parse(e.first_seen_at);
+    const dentro = (porUsuario.get(e.user_id) ?? []).filter(
+      (f) => f.quando >= t0 && f.quando < t0 + janelaMs,
+    );
+    return {
+      userId: e.user_id,
+      arm: e.arm,
+      comprou: dentro.length > 0,
+      receitaCents: dentro.reduce((a, f) => a + f.cents, 0),
+    };
+  });
+
+  return { experimentKey, attribDays, desde: inicio, usuarios };
+}
