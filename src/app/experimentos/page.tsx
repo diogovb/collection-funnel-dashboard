@@ -128,6 +128,7 @@ export default async function ExperimentosPage({ searchParams }: Props) {
   let canaisErro: string | null = null;
   let canalDoUsuario: Map<string, string> | null = null;
   let exposicoes: Exposicoes | null = null;
+  let cruzamentoErro: string | null = null;
   {
     /* As três em paralelo, e não em sequência: as duas do ClickHouse varrem
        a MESMA janela de eventos, então enfileirá-las dobraria o tempo de
@@ -146,11 +147,17 @@ export default async function ExperimentosPage({ searchParams }: Props) {
           ? agregado.reason.message
           : String(agregado.reason);
 
-    /* Estas duas só alimentam o cruzamento com o braço. Se falharem, aquele
-       bloco some e o resto da seção continua de pé — ele é leitura extra,
-       não o produto da tela. */
+    /* Estas duas só alimentam o cruzamento com o braço, e uma falha aqui não
+       derruba a seção. Mas o motivo NÃO se perde: some-lo foi o que me deixou
+       sem saber, no primeiro deploy, por que o bloco não tinha aparecido. */
     if (mapa.status === "fulfilled") canalDoUsuario = mapa.value;
+    else
+      cruzamentoErro =
+        mapa.reason instanceof Error ? mapa.reason.message : String(mapa.reason);
     if (expo.status === "fulfilled") exposicoes = expo.value;
+    else
+      cruzamentoErro =
+        expo.reason instanceof Error ? expo.reason.message : String(expo.reason);
   }
 
   return (
@@ -197,6 +204,7 @@ export default async function ExperimentosPage({ searchParams }: Props) {
           canalDoUsuario={canalDoUsuario}
           controlAudience={exp.control_audience}
           variantAudience={exp.variant_audience}
+          cruzamentoErro={cruzamentoErro}
         />
       ) : (
         <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />
