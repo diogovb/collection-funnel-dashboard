@@ -31,7 +31,9 @@ import {
 import {
   canaisPorUsuario,
   carregarCanais,
+  pontePorIp,
   type PainelDeCanais,
+  type PonteDeIp,
 } from "@/lib/canais";
 import { CanaisIndisponiveis, SecaoCanais } from "./canais-ui";
 
@@ -129,15 +131,17 @@ export default async function ExperimentosPage({ searchParams }: Props) {
   let canalDoUsuario: Map<string, string> | null = null;
   let exposicoes: Exposicoes | null = null;
   let cruzamentoErro: string | null = null;
+  let ponte: PonteDeIp | null = null;
   {
     /* As três em paralelo, e não em sequência: as duas do ClickHouse varrem
        a MESMA janela de eventos, então enfileirá-las dobraria o tempo de
        parede sem economizar leitura nenhuma. `allSettled` porque cada uma
        tem um destino diferente quando falha. */
-    const [agregado, mapa, expo] = await Promise.allSettled([
+    const [agregado, mapa, expo, pnt] = await Promise.allSettled([
       carregarCanais(attribDays),
       canaisPorUsuario(),
       fetchExposicoes(key, attribDays),
+      pontePorIp(),
     ]);
 
     if (agregado.status === "fulfilled") canais = agregado.value;
@@ -158,6 +162,10 @@ export default async function ExperimentosPage({ searchParams }: Props) {
     else
       cruzamentoErro =
         expo.reason instanceof Error ? expo.reason.message : String(expo.reason);
+
+    /* A ponte é diagnóstico puro: se cair, o bloco dela some e mais nada muda —
+       ela não alimenta nem o ranking nem o cruzamento com o braço. */
+    if (pnt.status === "fulfilled") ponte = pnt.value;
   }
 
   return (
@@ -205,6 +213,7 @@ export default async function ExperimentosPage({ searchParams }: Props) {
           controlAudience={exp.control_audience}
           variantAudience={exp.variant_audience}
           cruzamentoErro={cruzamentoErro}
+          ponte={ponte}
         />
       ) : (
         <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />

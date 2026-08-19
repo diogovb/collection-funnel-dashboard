@@ -596,3 +596,141 @@ SELECT n.uid AS uid, ${CLASSIFICACAO} AS canal
   for (const l of linhas) if (l.uid) mapa.set(l.uid, l.canal || SEM_RASTRO);
   return mapa;
 }
+
+/* -------------------------------------------- a ponte do instalador ------ */
+
+/**
+ * Piso da ponte: `plugin_download` só começou a ser gravado em 26/07/2026 e só
+ * ganhou volume em 03/08. Antes disso a ponte não acha nada — e um zero ali
+ * seria lido como "ninguém veio do instalador", que é o erro que esta base já
+ * cometeu com o carimbo de plugin.
+ */
+export const PONTE_DESDE = "2026-08-03 00:00:00";
+
+/** Quanto tempo antes da conta aparecer o download ainda conta. */
+export const PONTE_JANELA_DIAS = 7;
+
+export type PonteDeIp = {
+  desde: string;
+  janelaDias: number;
+  /** Contas que nasceram no plugin sem nenhum toque de anúncio observável. */
+  cegas: number;
+  /** Dessas, quantas têm um download de instalador do mesmo IP, antes e na janela. */
+  casadas: number;
+  /** O canal do download que casou — a origem que a ponte devolve. */
+  porCanal: { canal: string; contas: number }[];
+  /** Contas que dividem IP com outra conta nova: o tamanho da ambiguidade. */
+  ambiguas: number;
+};
+
+/**
+ * De onde vieram os cadastros que nasceram cegos dentro do plugin.
+ *
+ * O clique pago acontece no navegador da pessoa e o cadastro acontece no CEF do
+ * SketchUp: `anonymous_id` diferente, e nada liga os dois. Mas os dois passam
+ * pelo MESMO IP, e entre baixar o instalador e abrir o plugin costumam passar
+ * minutos. A ponte é essa — download anônimo de instalador, mesmo IP, antes da
+ * conta aparecer e dentro da janela.
+ *
+ * ⚠️ Ela é PROBABILÍSTICA e por isso NÃO entra no ranking de canais: IP de
+ * escritório ou NAT de operadora junta gente diferente. Medido em 19/08 o
+ * tamanho dessa ambiguidade é pequeno — 4% das contas novas dividem IP com
+ * outra, e o pior IP tem 3 —, mas pequeno não é zero, e o ranking é de dinheiro.
+ * Ela existe para responder "a campanha que aponta para o instalador está
+ * trazendo gente?", não para mexer em quanto cada canal rende.
+ */
+export async function pontePorIp(): Promise<PonteDeIp> {
+  const linhas = await chQuery<{
+    canal: string;
+    contas: string | number;
+    cegas: string | number;
+    ambiguas: string | number;
+  }>(`
+WITH
+  nascidos AS (
+    SELECT app_user_id AS uid, min(created_at) AS criado
+      FROM collection_core.dim_identity_all
+     WHERE app = 'collection' AND is_deleted = 0
+     GROUP BY app_user_id
+    HAVING criado >= toDateTime('${PONTE_DESDE}')
+  ),
+  anons AS (
+    SELECT user_id AS uid, anonymous_id AS anon
+      FROM collection.events_distributed
+     WHERE event_date >= today() - ${EVENTOS_DIAS}
+       AND user_id != '' AND anonymous_id != ''
+       AND user_id GLOBAL IN (SELECT uid FROM nascidos)
+    UNION DISTINCT
+    SELECT user_id AS uid, anonymous_id AS anon
+      FROM collection.identity_map_distributed
+     WHERE user_id != '' AND anonymous_id != ''
+       AND user_id GLOBAL IN (SELECT uid FROM nascidos)
+  ),
+  /* Onde e quando a conta APARECEU, e se ela nasceu cega no plugin. */
+  chegada AS (
+    SELECT a.uid                                   AS uid,
+           argMin(e.ip_address, e.timestamp)       AS ip,
+           min(e.timestamp)                        AS t0,
+           maxIf(1, positionCaseInsensitive(e.page_url,'sketchupId') > 0) AS no_plugin,
+           maxIf(1, extractURLParameter(e.page_url,'gclid') != ''
+                    OR extractURLParameter(e.page_url,'gbraid') != ''
+                    OR lower(extractURLParameter(e.page_url,'utm_source')) != '') AS tem_origem
+      FROM anons AS a
+     INNER JOIN collection.events_distributed AS e ON e.anonymous_id = a.anon
+     WHERE e.event_date >= today() - ${EVENTOS_DIAS} AND e.ip_address != ''
+     GROUP BY a.uid
+  ),
+  /* Downloads de instalador por IP, com o canal do PRÓPRIO anônimo que baixou. */
+  downloads AS (
+    SELECT ip_address AS ip, min(timestamp) AS quando,
+           argMin(page_url, timestamp) AS url0, argMin(referrer, timestamp) AS ref0
+      FROM collection.events_distributed
+     WHERE event_date >= today() - ${EVENTOS_DIAS}
+       AND event_name = 'plugin_download' AND ip_address != ''
+     GROUP BY ip_address
+  )
+SELECT
+  multiIf(
+    d.ip = '', 'sem download no mesmo IP',
+    extractURLParameter(d.url0,'gclid') != ''
+      OR extractURLParameter(d.url0,'gbraid') != ''
+      OR lower(extractURLParameter(d.url0,'utm_source')) = 'google', 'Google Ads',
+    lower(extractURLParameter(d.url0,'utm_source')) != '', 'Outra campanha',
+    lower(cutWWW(domain(d.ref0))) LIKE '%google%', 'Google orgânico',
+    'Direto ou próprio site'
+  ) AS canal,
+  countIf(c.no_plugin = 1 AND c.tem_origem = 0)  AS contas,
+  toUInt64(0)                                    AS cegas,
+  toUInt64(0)                                    AS ambiguas
+FROM (
+  SELECT uid, ip, t0, no_plugin, tem_origem,
+         count() OVER (PARTITION BY ip) AS contas_no_ip
+    FROM chegada
+) AS c
+GLOBAL LEFT JOIN downloads AS d
+  ON d.ip = c.ip
+ AND d.quando <= c.t0
+ AND d.quando >= c.t0 - toIntervalDay(${PONTE_JANELA_DIAS})
+GROUP BY canal
+`);
+
+  /* As duas contagens globais saem de uma segunda passada barata sobre o mesmo
+     resultado: `cegas` é a soma de tudo, `casadas` é tudo menos o balde sem
+     download. Fazer no TS evita uma segunda varredura no banco. */
+  const SEM = "sem download no mesmo IP";
+  const porCanal = linhas
+    .filter((l) => l.canal !== SEM && n(l.contas) > 0)
+    .map((l) => ({ canal: l.canal, contas: n(l.contas) }))
+    .sort((a, b) => b.contas - a.contas);
+  const cegas = linhas.reduce((a, l) => a + n(l.contas), 0);
+  const casadas = porCanal.reduce((a, l) => a + l.contas, 0);
+
+  return {
+    desde: PONTE_DESDE.slice(0, 10),
+    janelaDias: PONTE_JANELA_DIAS,
+    cegas,
+    casadas,
+    porCanal,
+    ambiguas: 0,
+  };
+}
