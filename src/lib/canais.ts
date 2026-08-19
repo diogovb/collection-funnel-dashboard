@@ -499,13 +499,13 @@ ${IDENT},
   anons AS (
     SELECT user_id AS uid, anonymous_id AS anon
       FROM collection.identity_map_distributed
-     WHERE user_id !=  AND anonymous_id != 
+     WHERE user_id != '' AND anonymous_id != ''
        AND user_id GLOBAL IN (SELECT uid FROM novos_uid)
     UNION DISTINCT
     SELECT user_id AS uid, anonymous_id AS anon
       FROM collection.events_distributed
      WHERE event_date >= today() - ${EVENTOS_DIAS}
-       AND user_id !=  AND anonymous_id != 
+       AND user_id != '' AND anonymous_id != ''
        AND user_id GLOBAL IN (SELECT uid FROM novos_uid)
   )
 SELECT n.uid AS uid, ${CLASSIFICACAO} AS canal
