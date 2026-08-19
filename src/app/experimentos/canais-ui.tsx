@@ -3,6 +3,7 @@ import type { Exposicoes } from "@/lib/supabase-subs";
 import {
   PISO_DO_CANAL,
   NASCEU_NO_PLUGIN,
+  type PonteDeIp,
   SEM_RASTRO,
   canalConfiavel,
   ordemDoRanking,
@@ -1056,6 +1057,87 @@ function CanalPorBraco({
   );
 }
 
+/* ------------------------------------------- a ponte do instalador ------- */
+
+/**
+ * De onde veio quem nasceu cego dentro do plugin.
+ *
+ * Bloco de DIAGNÓSTICO, não de placar: a ponte casa por IP e é probabilística,
+ * então ela não move um centavo do ranking acima. Ela responde uma pergunta que
+ * o ranking não consegue responder — "a campanha que aponta para o instalador
+ * está trazendo gente?" — e responde com o denominador à vista, como o resto
+ * da tela.
+ */
+function PonteDoInstalador({ ponte }: { ponte: PonteDeIp }) {
+  if (!ponte.cegas) return null;
+  const semCasar = ponte.cegas - ponte.casadas;
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h3 className="text-sm font-medium text-gray-200">
+          De onde vieram os cadastros que nasceram no plugin
+        </h3>
+        <span className="text-[11px] text-gray-500">
+          mesmo IP · download antes · janela de {ponte.janelaDias} dias
+        </span>
+      </div>
+      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+        O clique pago acontece no navegador da pessoa e o cadastro acontece dentro
+        do SketchUp — dois contextos que nada liga. Mas os dois passam pelo{" "}
+        <span className="text-gray-300">mesmo IP</span>, e entre baixar o instalador
+        e abrir o plugin costumam passar minutos. É essa a ponte.
+      </p>
+
+      <div className="overflow-x-auto mt-3">
+        <table className="w-full text-xs min-w-[380px]">
+          <thead>
+            <tr className="text-gray-500 text-[11px]">
+              <th className="text-left font-normal pb-2">Origem do download</th>
+              <th className="text-right font-normal pb-2">Cadastros</th>
+              <th className="text-right font-normal pb-2">Fatia dos cegos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ponte.porCanal.map((l) => (
+              <tr key={l.canal} className="border-t border-gray-800/50">
+                <td className="py-1.5 text-gray-300">{l.canal}</td>
+                <td className="py-1.5 text-right text-gray-100 tabular-nums">
+                  {num(l.contas)}
+                </td>
+                <td className="py-1.5 text-right text-gray-500 tabular-nums">
+                  {taxa(l.contas / ponte.cegas)}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t border-gray-800/50 text-gray-600">
+              <td className="py-1.5">sem download no mesmo IP</td>
+              <td className="py-1.5 text-right tabular-nums">{num(semCasar)}</td>
+              <td className="py-1.5 text-right tabular-nums">
+                {taxa(semCasar / ponte.cegas)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+        <strong>Isto não entra no ranking acima, de propósito.</strong> Casar por IP
+        é palpite com boa pontaria, não é fato: IP de escritório ou NAT de operadora
+        junta gente diferente. Medido em 19/08, a ambiguidade é pequena — 4% das
+        contas novas dividem IP com outra, e o pior IP tem três —, mas pequeno não é
+        zero, e o ranking acima é de dinheiro. Aqui a pergunta é outra: a campanha
+        que aponta para o instalador está trazendo gente? Para esses{" "}
+        {num(ponte.casadas)} de {num(ponte.cegas)} cadastros, está.
+      </p>
+      <p className="text-[11px] text-gray-600 mt-2">
+        A ponte só enxerga a partir de {ponte.desde.split("-").reverse().join("/")},
+        quando o evento de download do instalador passou a ser gravado. Antes disso
+        ela não acha nada — e isso é falta de medição, não falta de download.
+      </p>
+    </div>
+  );
+}
 /* ------------------------------------------------------------- a seção ---- */
 
 export function SecaoCanais({
@@ -1065,6 +1147,7 @@ export function SecaoCanais({
   controlAudience,
   variantAudience,
   cruzamentoErro,
+  ponte,
 }: {
   painel: PainelDeCanais;
   exposicoes?: Exposicoes | null;
@@ -1072,6 +1155,7 @@ export function SecaoCanais({
   controlAudience?: string;
   variantAudience?: string;
   cruzamentoErro?: string | null;
+  ponte?: PonteDeIp | null;
 }) {
   const campanhas = painel.campanhas
     .filter((c) => c.contas >= PISO_DO_CANAL)
@@ -1112,6 +1196,8 @@ export function SecaoCanais({
       <VereditoCanais painel={painel} />
       <TabelaDeCanais painel={painel} />
       <CanalXPlugin painel={painel} />
+
+      {!!ponte && <PonteDoInstalador ponte={ponte} />}
 
       {!!exposicoes &&
       !!canalDoUsuario &&
