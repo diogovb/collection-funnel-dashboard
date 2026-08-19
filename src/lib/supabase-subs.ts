@@ -41,6 +41,17 @@ export type ExperimentArm = {
   mature: number;
   buyers: number;
   revenue_cents: number;
+  /**
+   * Quanto da receita acima veio do upgrade da tela de sucesso
+   * (invoice_type = 'upsell_sucesso'). Vem SEMPRE, com p_include_upsell ligado
+   * ou desligado — é o que permite ler o braço com e sem a máquina de upsell
+   * rodando por cima do preço, que é o que o experimento está testando.
+   *
+   * Opcional porque o painel e o banco sobem separados: resposta de antes da
+   * migration de 19/08 não traz o campo.
+   */
+  upsell_revenue_cents?: number;
+  upsell_buyers?: number;
   sum_sq_cents: number;
   /** Receita por pessoa, agrupada. Permite bootstrap exato sem baixar linhas. */
   value_histogram: { cents: number; users: number }[];

@@ -460,9 +460,22 @@ function CartaoBraco({
           rotulo="Receita total"
           valor={brl(arm.revenue_cents)}
           sub={
-            arm.buyers > 0
-              ? `ticket ${brl(Math.round(arm.revenue_cents / arm.buyers))}`
-              : undefined
+            [
+              arm.buyers > 0
+                ? `ticket ${brl(Math.round(arm.revenue_cents / arm.buyers))}`
+                : null,
+              /* Quanto veio da oferta pós-compra. O experimento testa PREÇO;
+                 sem separar isto, uma máquina de upgrade rodando por cima
+                 mexe no ARPEU dos dois braços por um caminho que não é o
+                 preço, e não dá para saber de onde veio a diferença. */
+              (arm.upsell_revenue_cents ?? 0) > 0
+                ? `${brl(arm.upsell_revenue_cents ?? 0)} de upsell (${
+                    arm.upsell_buyers ?? 0
+                  })`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
           }
         />
       </div>
