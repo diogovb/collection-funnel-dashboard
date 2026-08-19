@@ -14,6 +14,8 @@ import {
   type ExperimentFunnel,
   type ExperimentReport,
   type FunnelStep,
+  fetchExposicoes,
+  type Exposicoes,
 } from "@/lib/supabase-subs";
 import {
   bootstrapRatio,
@@ -26,7 +28,11 @@ import {
   statsFromHistogram,
   wilson,
 } from "@/lib/stats";
-import { carregarCanais, type PainelDeCanais } from "@/lib/canais";
+import {
+  canaisPorUsuario,
+  carregarCanais,
+  type PainelDeCanais,
+} from "@/lib/canais";
 import { CanaisIndisponiveis, SecaoCanais } from "./canais-ui";
 
 /**
@@ -120,10 +126,31 @@ export default async function ExperimentosPage({ searchParams }: Props) {
      derrubar a pagina — por isso vira card vermelho, e nao throw. */
   let canais: PainelDeCanais | null = null;
   let canaisErro: string | null = null;
-  try {
-    canais = await carregarCanais(attribDays);
-  } catch (e) {
-    canaisErro = e instanceof Error ? e.message : String(e);
+  let canalDoUsuario: Map<string, string> | null = null;
+  let exposicoes: Exposicoes | null = null;
+  {
+    /* As tres em paralelo, e nao em sequencia: as duas do ClickHouse varrem
+       a MESMA janela de eventos, entao enfileira-las dobraria o tempo de
+       parede sem economizar leitura nenhuma. `allSettled` porque cada uma
+       tem um destino diferente quando falha. */
+    const [agregado, mapa, expo] = await Promise.allSettled([
+      carregarCanais(attribDays),
+      canaisPorUsuario(),
+      fetchExposicoes(key, attribDays),
+    ]);
+
+    if (agregado.status === "fulfilled") canais = agregado.value;
+    else
+      canaisErro =
+        agregado.reason instanceof Error
+          ? agregado.reason.message
+          : String(agregado.reason);
+
+    /* Estas duas so alimentam o cruzamento com o braco. Se falharem, aquele
+       bloco some e o resto da secao continua de pe — ele e leitura extra,
+       nao o produto da tela. */
+    if (mapa.status === "fulfilled") canalDoUsuario = mapa.value;
+    if (expo.status === "fulfilled") exposicoes = expo.value;
   }
 
   return (
@@ -164,7 +191,13 @@ export default async function ExperimentosPage({ searchParams }: Props) {
       )}
       <Saude report={report} controle={controle} variante={variante} />
       {canais ? (
-        <SecaoCanais painel={canais} />
+        <SecaoCanais
+          painel={canais}
+          exposicoes={exposicoes}
+          canalDoUsuario={canalDoUsuario}
+          controlAudience={exp.control_audience}
+          variantAudience={exp.variant_audience}
+        />
       ) : (
         <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />
       )}

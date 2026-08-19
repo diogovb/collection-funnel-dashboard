@@ -474,3 +474,62 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
     geradoEm: agora.toISOString(),
   };
 }
+
+/* --------------------------------------------- canal por pessoa (A/B) ----- */
+
+/**
+ * O canal de cada conta, um por linha — a ponte para cruzar com o braço do
+ * teste de preço, que só existe no Supabase.
+ *
+ * É consulta separada, e não uma coluna a mais na de cima, porque as duas
+ * respondem a perguntas de tamanhos diferentes: aquela agrega 7 mil contas em
+ * ~390 linhas, esta devolve as 7 mil. Rodá-las em paralelo custa o dobro de CPU
+ * no ClickHouse e o MESMO tempo de parede — e é bem mais barato que carregar
+ * 7 mil linhas em toda renderização da página, inclusive quando ninguém vai
+ * olhar o cruzamento.
+ *
+ * Ela é mais leve que a irmã: só precisa do primeiro toque. Sem fatura, sem
+ * plugin, sem janela de maturação.
+ */
+export async function canaisPorUsuario(): Promise<Map<string, string>> {
+  const linhas = await chQuery<{ uid: string; canal: string }>(`
+WITH
+${IDENT},
+  novos_uid AS (SELECT uid FROM ident),
+  anons AS (
+    SELECT user_id AS uid, anonymous_id AS anon
+      FROM collection.identity_map_distributed
+     WHERE user_id !=  AND anonymous_id != 
+       AND user_id GLOBAL IN (SELECT uid FROM novos_uid)
+    UNION DISTINCT
+    SELECT user_id AS uid, anonymous_id AS anon
+      FROM collection.events_distributed
+     WHERE event_date >= today() - ${EVENTOS_DIAS}
+       AND user_id !=  AND anonymous_id != 
+       AND user_id GLOBAL IN (SELECT uid FROM novos_uid)
+  )
+SELECT n.uid AS uid, ${CLASSIFICACAO} AS canal
+  FROM ident AS n
+  LEFT JOIN (
+    SELECT a.uid                AS uid,
+           argMin(t.url0, t.t0) AS url0,
+           argMin(t.ref0, t.t0) AS ref0,
+           toUInt8(1)           AS tem_toque
+      FROM anons AS a
+     INNER JOIN (
+       SELECT anonymous_id                          AS anon,
+              toString(argMin(page_url, timestamp)) AS url0,
+              toString(argMin(referrer, timestamp)) AS ref0,
+              toDateTime(min(timestamp))            AS t0
+         FROM collection.events_distributed
+        WHERE event_date >= today() - ${EVENTOS_DIAS}
+          AND anonymous_id GLOBAL IN (SELECT anon FROM anons)
+        GROUP BY anonymous_id
+     ) AS t ON t.anon = a.anon
+     GROUP BY a.uid
+  ) AS p ON p.uid = n.uid`);
+
+  const mapa = new Map<string, string>();
+  for (const l of linhas) if (l.uid) mapa.set(l.uid, l.canal || SEM_RASTRO);
+  return mapa;
+}

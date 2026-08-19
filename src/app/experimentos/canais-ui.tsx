@@ -1,6 +1,8 @@
 import { brl, pct, wilson } from "@/lib/stats";
+import type { Exposicoes } from "@/lib/supabase-subs";
 import {
   PISO_DO_CANAL,
+  SEM_RASTRO,
   receitaPorConta,
   type LinhaDeCanal,
   type PainelDeCanais,
@@ -37,6 +39,12 @@ const CARD =
 const taxa = (v: number): string => pct(v, v < 0.1 ? 2 : 1);
 
 const num = (v: number): string => v.toLocaleString("pt-BR");
+
+/** "A, B e C" — e nao "A e B e C", que e o que um join(" e ") produz. */
+const listar = (itens: string[]): string =>
+  itens.length <= 1
+    ? (itens[0] ?? "")
+    : `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
 
 /** Fatia de uma linha que chegou ao plugin. */
 const fatiaPlugin = (l: LinhaDeCanal): number =>
@@ -818,9 +826,243 @@ function ComoLer({ painel }: { painel: PainelDeCanais }) {
   );
 }
 
+/* --------------------------------------------------- canal x braço A/B ---- */
+
+/** Origem que o cruzamento não consegue nomear, e os dois motivos disso. */
+const SEM_ORIGEM = "Origem desconhecida";
+
+type CelulaAB = { expostos: number; compradores: number };
+
+/**
+ * O canal funciona melhor em algum braço do teste de preço?
+ *
+ * A cobertura aqui é MUITO menor que a do resto da seção, e a tela precisa
+ * dizer isso antes de qualquer número: a origem só existe para quem se
+ * cadastrou depois de 27/06, e a maior parte de quem foi exposto ao preço tem
+ * conta mais velha que isso. Medido em 19/08: 654 de 1.544 expostos (42%).
+ * O resto não é "veio de lugar nenhum" — é conta anterior à série de eventos.
+ *
+ * O denominador é `experiment_exposures`, e não o `pricing_arm` que existe nos
+ * eventos do ClickHouse. Os dois parecem a mesma coisa e não são: um é o braço
+ * que o front resolveu, o outro é a exposição registrada quando o preço
+ * apareceu na tela. Trocar um pelo outro ja me fez reportar um bug que era meu.
+ */
+function CanalPorBraco({
+  exposicoes,
+  canalDoUsuario,
+  controlAudience,
+  variantAudience,
+}: {
+  exposicoes: Exposicoes;
+  canalDoUsuario: Map<string, string>;
+  controlAudience: string;
+  variantAudience: string;
+}) {
+  if (!exposicoes.usuarios.length) return null;
+
+  const bracos = [controlAudience, variantAudience];
+  const grade = new Map<string, Map<string, CelulaAB>>();
+  let comOrigem = 0;
+
+  for (const u of exposicoes.usuarios) {
+    const conhecido = canalDoUsuario.get(u.userId);
+    /* Duas ausências diferentes caem no mesmo balde de propósito: quem não está
+       no mapa tem conta anterior à série, e quem está como "Sem rastro" tem
+       conta nova sem nenhum evento. Para ESTA pergunta as duas respondem a
+       mesma coisa — não sei de onde veio — e separá-las daria duas linhas que
+       ninguém consegue acionar. */
+    const canal = conhecido && conhecido !== SEM_RASTRO ? conhecido : SEM_ORIGEM;
+    if (canal !== SEM_ORIGEM) comOrigem += 1;
+    const linha = grade.get(canal) ?? new Map<string, CelulaAB>();
+    const cel = linha.get(u.arm) ?? { expostos: 0, compradores: 0 };
+    cel.expostos += 1;
+    if (u.comprou) cel.compradores += 1;
+    linha.set(u.arm, cel);
+    grade.set(canal, linha);
+  }
+
+  const celula = (canal: string, arm: string): CelulaAB =>
+    grade.get(canal)?.get(arm) ?? { expostos: 0, compradores: 0 };
+
+  const totalDoCanal = (canal: string) =>
+    bracos.reduce((t, arm) => t + celula(canal, arm).expostos, 0);
+
+  const canais = [...grade.keys()]
+    .filter((c) => c !== SEM_ORIGEM)
+    .sort((a, b) => totalDoCanal(b) - totalDoCanal(a));
+
+  /* Escala COMPARTILHADA entre os dois braços: escalas separadas fariam o A
+     empatado parecer tão escuro quanto o B. Mesma decisão da MatrizCoortes. */
+  let taxaMax = 0;
+  for (const canal of canais)
+    for (const arm of bracos) {
+      const c = celula(canal, arm);
+      if (c.expostos >= PISO_DO_CANAL)
+        taxaMax = Math.max(taxaMax, c.compradores / c.expostos);
+    }
+
+  const total = exposicoes.usuarios.length;
+  const dias = exposicoes.desde
+    ? Math.max(1, (Date.now() - Date.parse(exposicoes.desde)) / 86400000)
+    : null;
+  const semOrigem = total - comOrigem;
+
+  const Cel = ({ canal, arm }: { canal: string; arm: string }) => {
+    const c = celula(canal, arm);
+    const comBase = c.expostos >= PISO_DO_CANAL;
+    const p = comBase && taxaMax > 0 ? c.compradores / c.expostos / taxaMax : 0;
+    return (
+      <td
+        className={`py-1.5 px-2 text-right tabular-nums ${
+          c.expostos === 0
+            ? "text-gray-700"
+            : comBase
+              ? "text-gray-100"
+              : "text-gray-500"
+        }`}
+        style={{
+          background: comBase
+            ? `rgba(99,102,241,${0.12 + p * 0.6})`
+            : "transparent",
+        }}
+        title={
+          c.expostos === 0
+            ? "ninguém exposto"
+            : comBase
+              ? `${taxa(c.compradores / c.expostos)} de conversão`
+              : `menos de ${PISO_DO_CANAL} expostos — sem taxa`
+        }
+      >
+        {c.expostos === 0 ? "—" : `${c.compradores}/${c.expostos}`}
+      </td>
+    );
+  };
+
+  const prontos = canais.filter((c) =>
+    bracos.every((arm) => celula(c, arm).expostos >= PISO_DO_CANAL),
+  );
+  const faltando = canais
+    .filter((c) => !prontos.includes(c))
+    .map((c) => {
+      const menor = Math.min(...bracos.map((arm) => celula(c, arm).expostos));
+      /* O ritmo sai dos dados, não de uma constante: quantos expostos por dia
+         POR BRAÇO este canal vem trazendo. */
+      const ritmo = dias ? totalDoCanal(c) / dias / bracos.length : 0;
+      const eta = ritmo > 0 ? Math.ceil((PISO_DO_CANAL - menor) / ritmo) : null;
+      return { canal: c, eta };
+    })
+    .filter((x) => x.eta !== null && x.eta <= 60)
+    .slice(0, 3);
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h3 className="text-sm font-medium text-gray-200">
+          Canal × braço do teste de preço
+        </h3>
+        <span className="text-[11px] text-gray-500">
+          taxa a partir de {PISO_DO_CANAL} expostos por braço
+        </span>
+      </div>
+      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+        A pergunta natural — &ldquo;o preço menor funciona melhor em algum
+        canal?&rdquo; — ainda não tem resposta, e o motivo não é só o tamanho da
+        amostra.{" "}
+        <span className="text-gray-300">
+          {num(comOrigem)} dos {num(total)} expostos (
+          {taxa(total > 0 ? comOrigem / total : 0)})
+        </span>{" "}
+        têm origem conhecida; os outros {num(semOrigem)} criaram a conta antes de
+        a série de eventos existir e não têm primeiro toque observável. Quebrar
+        essa metade por canal <em>e</em> por braço deixa quase toda célula abaixo
+        do piso.
+      </p>
+
+      <div className="overflow-x-auto mt-3">
+        <table className="text-xs min-w-[440px] w-full">
+          <thead>
+            <tr className="text-gray-500 text-[11px]">
+              <th className="text-left font-normal pb-2" />
+              <th className="text-right font-normal pb-2 px-2">A · controle</th>
+              <th className="text-right font-normal pb-2 px-2">B · variante</th>
+              <th className="text-right font-normal pb-2 w-16">B ÷ A</th>
+            </tr>
+          </thead>
+          <tbody>
+            {canais.map((canal) => {
+              const a = celula(canal, controlAudience);
+              const b = celula(canal, variantAudience);
+              const ta =
+                a.expostos >= PISO_DO_CANAL ? a.compradores / a.expostos : null;
+              const tb =
+                b.expostos >= PISO_DO_CANAL ? b.compradores / b.expostos : null;
+              const razao = ta !== null && tb !== null && ta > 0 ? tb / ta : null;
+              return (
+                <tr key={canal} className="border-t border-gray-800/50">
+                  <td className="py-1.5 text-gray-300 whitespace-nowrap">
+                    {canal}
+                  </td>
+                  <Cel canal={canal} arm={controlAudience} />
+                  <Cel canal={canal} arm={variantAudience} />
+                  <td className="py-1.5 text-right text-gray-500 tabular-nums">
+                    {razao === null
+                      ? "—"
+                      : `${razao.toFixed(1).replace(".", ",")}x`}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="border-t border-gray-800/50 text-gray-600">
+              <td className="py-1.5">{SEM_ORIGEM}</td>
+              <Cel canal={SEM_ORIGEM} arm={controlAudience} />
+              <Cel canal={SEM_ORIGEM} arm={variantAudience} />
+              <td className="py-1.5 text-right">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+        {prontos.length === 0
+          ? "Nenhum canal passou do piso nos dois braços ainda"
+          : prontos.length === canais.length
+            ? "Todos os canais com origem conhecida já têm base nos dois braços"
+            : `${listar(prontos)} ${
+                prontos.length === 1 ? "já tem" : "já têm"
+              } base nos dois braços`}
+        {faltando.length > 0 && (
+          <>
+            {". No ritmo atual, "}
+            {listar(
+              faltando.map(
+                (f) =>
+                  `${f.canal} chega em ~${f.eta} ${f.eta === 1 ? "dia" : "dias"}`,
+              ),
+            )}
+          </>
+        )}
+        . Antes disso, não olhe para as células cinzas: uma taxa sobre seis
+        pessoas se move dezessete pontos com o próximo comprador.
+      </p>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- a seção ---- */
 
-export function SecaoCanais({ painel }: { painel: PainelDeCanais }) {
+export function SecaoCanais({
+  painel,
+  exposicoes,
+  canalDoUsuario,
+  controlAudience,
+  variantAudience,
+}: {
+  painel: PainelDeCanais;
+  exposicoes?: Exposicoes | null;
+  canalDoUsuario?: Map<string, string> | null;
+  controlAudience?: string;
+  variantAudience?: string;
+}) {
   const campanhas = painel.campanhas
     .filter((c) => c.contas >= PISO_DO_CANAL)
     .slice(0, 12)
@@ -860,6 +1102,18 @@ export function SecaoCanais({ painel }: { painel: PainelDeCanais }) {
       <VereditoCanais painel={painel} />
       <TabelaDeCanais painel={painel} />
       <CanalXPlugin painel={painel} />
+
+      {!!exposicoes &&
+        !!canalDoUsuario &&
+        !!controlAudience &&
+        !!variantAudience && (
+          <CanalPorBraco
+            exposicoes={exposicoes}
+            canalDoUsuario={canalDoUsuario}
+            controlAudience={controlAudience}
+            variantAudience={variantAudience}
+          />
+        )}
 
       <Tabelinha
         titulo="Qual campanha traz cadastro que assina"
