@@ -70,6 +70,28 @@ export const PISO_DO_CANAL = 20;
 /** O balde que não é canal. Existe para o denominador não mentir. */
 export const SEM_RASTRO = "Sem rastro";
 
+/**
+ * O outro balde que não é canal — e este engana muito mais.
+ *
+ * Cadastro que nasce dentro do plugin aterrissou ali; não VEIO dali. O clique
+ * que trouxe a pessoa aconteceu no navegador dela, e o navegador embutido do
+ * SketchUp é outro contexto: `anonymous_id` diferente, e o vínculo com a conta
+ * só nasce no login — que no navegador de fora não houve. Medido em 19/08:
+ * **das 238 contas nascidas no plugin desde 08/08, ZERO têm um toque de anúncio
+ * recuperável em qualquer anônimo ligado a elas.**
+ *
+ * Isso deixou de ser detalhe quando uma campanha do Google Ads passou a apontar
+ * para a página de instalação: na semana de 10/08 este balde saltou de ~46 para
+ * 146 contas enquanto o Google Ads caiu de 881 para 471 — e a soma dos dois
+ * ficou igual à média das semanas anteriores. Ou seja: o canal pago não perdeu
+ * volume, ele passou a desembocar AQUI, onde o rastreamento não o enxerga.
+ *
+ * Por isso ele sai do ranking. Deixá-lo competindo com Google Ads e orgânico
+ * faria a tela comparar uma ORIGEM com uma SUPERFÍCIE, e — pior — daria a um
+ * balde cego o crédito de uma campanha paga.
+ */
+export const NASCEU_NO_PLUGIN = "Nasceu dentro do plugin";
+
 /* ------------------------------------------------------------------ tipos -- */
 
 /** Uma linha crua da query, no grão mais fino. ClickHouse manda número como string. */
@@ -134,6 +156,8 @@ export type PainelDeCanais = {
   canais: LinhaDeCanal[];
   /** Fora do ranking de propósito: não saber de onde veio não é um canal. */
   semRastro: LinhaDeCanal;
+  /** Também fora do ranking: superfície de cadastro, não origem. Ver `NASCEU_NO_PLUGIN`. */
+  nascidosNoPlugin: LinhaDeCanal;
   /** Contas novas demais para entrar em qualquer taxa. */
   aindaMaturando: number;
   totais: {
@@ -158,7 +182,7 @@ export type PainelDeCanais = {
  *
  * 1. "Google orgânico" vem ANTES de "Google Ads" porque `utm_source=google` com
  *    `utm_medium=organic` é orgânico marcado à mão, não anúncio.
- * 2. "Plugin SketchUp" vem ANTES de "Direto". O plugin abre o navegador sem
+ * 2. O teste do plugin vem ANTES de "Direto". O plugin abre o navegador sem
  *    referrer e sem utm; se o teste ficasse depois, a superfície inteira do
  *    plugin sumiria dentro de "Direto" — e é justamente o balde mais acionável
  *    do painel.
@@ -176,7 +200,7 @@ const CLASSIFICACAO = `
       lower(extractURLParameter(p.url0,'utm_source')) = 'blog', 'Blog',
       lower(extractURLParameter(p.url0,'utm_source')) = 'collection_trigger', 'Gatilho interno',
       lower(extractURLParameter(p.url0,'utm_source')) != '', 'Outra campanha',
-      positionCaseInsensitive(p.url0,'sketchupId') > 0, 'Plugin SketchUp',
+      positionCaseInsensitive(p.url0,'sketchupId') > 0, '${NASCEU_NO_PLUGIN}',
       lower(cutWWW(domain(p.ref0))) = '', 'Direto',
       endsWith(lower(cutWWW(domain(p.ref0))),'collection.com.br'), 'Direto',
       lower(cutWWW(domain(p.ref0))) LIKE 'google.%'
@@ -471,12 +495,17 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
     porSemana.set(chaveSemana, s);
   }
 
+  /* Os dois baldes que NÃO são canal saem do ranking e continuam no total: a
+     comparação perde o que não dá para comparar, o denominador não perde nada. */
   const semRastro = porCanal.get(SEM_RASTRO) ?? vazio(SEM_RASTRO);
   porCanal.delete(SEM_RASTRO);
+  const nascidosNoPlugin =
+    porCanal.get(NASCEU_NO_PLUGIN) ?? vazio(NASCEU_NO_PLUGIN);
+  porCanal.delete(NASCEU_NO_PLUGIN);
 
   const canais = [...porCanal.values()].sort(ordemDoRanking);
 
-  const totais = [...canais, semRastro].reduce(
+  const totais = [...canais, semRastro, nascidosNoPlugin].reduce(
     (acc, c) => ({
       contas: acc.contas + c.contas,
       assinantes: acc.assinantes + c.assinantes,
@@ -498,6 +527,7 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
     coorteAte: soData(ate),
     canais,
     semRastro,
+    nascidosNoPlugin,
     aindaMaturando,
     totais,
     campanhas: [...porCampanha.values()].sort((a, b) => b.contas - a.contas),

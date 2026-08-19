@@ -2,6 +2,7 @@ import { brl, pct, wilson } from "@/lib/stats";
 import type { Exposicoes } from "@/lib/supabase-subs";
 import {
   PISO_DO_CANAL,
+  NASCEU_NO_PLUGIN,
   SEM_RASTRO,
   canalConfiavel,
   ordemDoRanking,
@@ -185,10 +186,10 @@ function VereditoCanais({ painel }: { painel: PainelDeCanais }) {
      Escala 0–100% de propósito. Comprimir para 0–30% faria a diferença parecer
      maior do que é e esconderia o segundo achado: ninguém é bom nisso. */
   const maior = painel.canais.filter((c) => c.contas >= PISO_DO_CANAL).sort((a, b) => b.contas - a.contas)[0];
-  /* O "Plugin SketchUp" fica fora do comparativo: ele é 100% por construção
-     (nasceu dentro do plugin), e incluí-lo inflaria a régua com uma tautologia. */
+  /* `painel.canais` já não traz quem nasceu dentro do plugin — aquele balde é
+     100% plugin por construção e inflaria a régua com uma tautologia. */
   const outros = painel.canais.filter(
-    (c) => c !== maior && c.contas >= PISO_DO_CANAL && fatiaPlugin(c) < 1,
+    (c) => c !== maior && c.contas >= PISO_DO_CANAL,
   );
   const somaOutras = outros.reduce(
     (a, c) => ({ p: a.p + c.plugin.contas, t: a.t + c.contas }),
@@ -280,7 +281,9 @@ function TabelaDeCanais({ painel }: { painel: PainelDeCanais }) {
     receitaPorConta(c) < mediaCasa * CORTE_DE_QUEIMA;
 
   const somaLinhas =
-    visiveis.reduce((a, c) => a + c.contasTodas, 0) + painel.semRastro.contasTodas;
+    visiveis.reduce((a, c) => a + c.contasTodas, 0) +
+    painel.semRastro.contasTodas +
+    painel.nascidosNoPlugin.contasTodas;
 
   return (
     <div className={CARD}>
@@ -383,6 +386,26 @@ function TabelaDeCanais({ painel }: { painel: PainelDeCanais }) {
             </tr>
             <tr
               className="border-t border-gray-800/50 text-gray-600"
+              title="Cadastro feito dentro do SketchUp — o clique que trouxe a pessoa aconteceu em outro navegador"
+            >
+              <td className="py-1.5 text-gray-500 align-top">
+                {painel.nascidosNoPlugin.canal}
+              </td>
+              <td className="py-1.5 text-right tabular-nums align-top">
+                {num(painel.nascidosNoPlugin.assinantes)}
+                <span className="text-gray-700">
+                  /{num(painel.nascidosNoPlugin.contas)}
+                </span>
+              </td>
+              <td className="py-1.5 text-right text-gray-600 tabular-nums align-top">
+                {painel.nascidosNoPlugin.receitaCents > 0
+                  ? brl(painel.nascidosNoPlugin.receitaCents)
+                  : "—"}
+              </td>
+              <td className="py-1.5 text-right align-top">—</td>
+            </tr>
+            <tr
+              className="border-t border-gray-800/50 text-gray-600"
               title="Conta criada, nenhum evento registrado"
             >
               <td className="py-1.5 text-gray-500 align-top">
@@ -403,6 +426,19 @@ function TabelaDeCanais({ painel }: { painel: PainelDeCanais }) {
       </div>
 
       <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
+        <strong>Nascer dentro do plugin não é um canal.</strong> São{" "}
+        {num(painel.nascidosNoPlugin.contas)} contas que se cadastraram dentro do
+        SketchUp — e o cadastro é onde elas <em>aterrissaram</em>, não de onde
+        vieram. O clique que trouxe essas pessoas aconteceu no navegador delas, e o
+        navegador embutido do SketchUp é outro contexto: o vínculo entre os dois só
+        existiria se houvesse login antes, e não houve. Medido em 19/08:{" "}
+        <strong>das 238 contas nascidas no plugin desde 08/08, nenhuma tinha um
+        toque de anúncio recuperável</strong>. Enquanto uma campanha apontar para a
+        página de instalação, o que ela comprar cai nesta linha e não na coluna do
+        canal que pagou.
+      </p>
+
+      <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
         <strong>Sem rastro não é um canal.</strong> São {num(painel.semRastro.contas)}{" "}
         contas maduras ({taxa(contas > 0 ? painel.semRastro.contas / contas : 0)}{" "}
         do período) que não registraram nenhum evento — nem visita, nem plugin,
@@ -508,9 +544,7 @@ function CanalXPlugin({ painel }: { painel: PainelDeCanais }) {
      módulos com "—" dos dois lados — nove cartões para três informações, que é
      exatamente a sopa de números que a divisão por canal veio evitar. */
   const comparaveis = painel.canais.filter(
-    (c) =>
-      (c.web.contas >= PISO_DO_CANAL && c.plugin.contas >= PISO_DO_CANAL) ||
-      (c.contas >= PISO_DO_CANAL && fatiaPlugin(c) === 1),
+    (c) => c.web.contas >= PISO_DO_CANAL && c.plugin.contas >= PISO_DO_CANAL,
   );
   const linhas = [...comparaveis].sort((a, b) => b.contas - a.contas);
   const deFora = painel.canais.filter(
@@ -531,9 +565,7 @@ function CanalXPlugin({ painel }: { painel: PainelDeCanais }) {
       0.01,
     ) * 1.15;
 
-  const chegam = linhas
-    .filter((c) => fatiaPlugin(c) < 1)
-    .sort((a, b) => fatiaPlugin(b) - fatiaPlugin(a));
+  const chegam = [...linhas].sort((a, b) => fatiaPlugin(b) - fatiaPlugin(a));
 
   return (
     <div className={CARD}>
@@ -844,7 +876,10 @@ function CanalPorBraco({
        conta nova sem nenhum evento. Para ESTA pergunta as duas respondem a
        mesma coisa — não sei de onde veio — e separá-las daria duas linhas que
        ninguém consegue acionar. */
-    const canal = conhecido && conhecido !== SEM_RASTRO ? conhecido : SEM_ORIGEM;
+    const canal =
+      conhecido && conhecido !== SEM_RASTRO && conhecido !== NASCEU_NO_PLUGIN
+        ? conhecido
+        : SEM_ORIGEM;
     if (canal !== SEM_ORIGEM) comOrigem += 1;
     const linha = grade.get(canal) ?? new Map<string, CelulaAB>();
     const cel = linha.get(u.arm) ?? { expostos: 0, compradores: 0 };
