@@ -26,6 +26,8 @@ import {
   statsFromHistogram,
   wilson,
 } from "@/lib/stats";
+import { carregarCanais, type PainelDeCanais } from "@/lib/canais";
+import { CanaisIndisponiveis, SecaoCanais } from "./canais-ui";
 
 /**
  * Acompanhamento de testes A/B, desenhado para uma pergunta só: **já dá para
@@ -45,6 +47,10 @@ import {
  * segundos — nada de polling.
  */
 export const revalidate = 300;
+/* A leitura por canal varre ~60 dias de eventos no ClickHouse. O banco mata a
+   consulta em 45 s e o fetch aborta em 55 s; sem este teto a funcao morreria
+   antes dos dois e o erro apontaria para o lugar errado. */
+export const maxDuration = 60;
 
 const CARD =
   "bg-gray-900/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-800/50";
@@ -108,6 +114,18 @@ export default async function ExperimentosPage({ searchParams }: Props) {
     coortes = null;
   }
 
+  /* Aquisicao por canal. Ao contrario do funil e das coortes, o ERRO aqui nao
+     some em silencio: este bloco responde a pergunta principal da tela, e um
+     bloco ausente se leria como "nao tem dado". Mas ele tambem nao pode
+     derrubar a pagina — por isso vira card vermelho, e nao throw. */
+  let canais: PainelDeCanais | null = null;
+  let canaisErro: string | null = null;
+  try {
+    canais = await carregarCanais(attribDays);
+  } catch (e) {
+    canaisErro = e instanceof Error ? e.message : String(e);
+  }
+
   return (
     <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-4">
       <Cabecalho report={report} />
@@ -145,6 +163,11 @@ export default async function ExperimentosPage({ searchParams }: Props) {
         </>
       )}
       <Saude report={report} controle={controle} variante={variante} />
+      {canais ? (
+        <SecaoCanais painel={canais} />
+      ) : (
+        <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />
+      )}
       <Metodologia attribDays={report.experiment.attrib_days} />
     </main>
   );
@@ -171,15 +194,26 @@ function Cabecalho({ report }: { report: ExperimentReport }) {
           {desde ? ` · ${dias} ${dias === 1 ? "dia" : "dias"} rodando` : ""}
         </p>
       </div>
-      <span
-        className={
-          exp.is_active
-            ? "px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-            : "px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700"
-        }
-      >
-        {exp.is_active ? "No ar" : "Desligado"}
-      </span>
+      <div className="flex items-center gap-2">
+        {/* A secao de aquisicao mora no fim da pagina de proposito — ela mede
+            outro universo. A ancora existe para quem entra aqui procurando por
+            ela nao precisar rolar a tela inteira para descobrir que existe. */}
+        <a
+          href="#aquisicao"
+          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-600 transition-colors"
+        >
+          Aquisicao por canal ↓
+        </a>
+        <span
+          className={
+            exp.is_active
+              ? "px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+              : "px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700"
+          }
+        >
+          {exp.is_active ? "No ar" : "Desligado"}
+        </span>
+      </div>
     </div>
   );
 }
