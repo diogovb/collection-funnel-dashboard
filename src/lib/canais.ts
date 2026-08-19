@@ -1,5 +1,6 @@
 import "server-only";
 import { chQuery } from "@/lib/clickhouse";
+import { wilson } from "@/lib/stats";
 
 /**
  * De onde vêm os assinantes — canal de aquisição cruzado com quem pagou.
@@ -341,6 +342,43 @@ const vazio = (canal: string): LinhaDeCanal => ({
   web: { contas: 0, assinantes: 0, receitaCents: 0 },
 });
 
+/**
+ * Canal com base suficiente para DISPUTAR o topo do ranking.
+ *
+ * O piso de 20 contas evita a taxa anedótica, mas não evita o pódio
+ * anedótico: um canal com 5 contas e 1 assinante rende R$ 34 por conta e
+ * passa na frente de todos. O teste é a faixa de Wilson — se ela é mais
+ * larga que a própria taxa, o número não sustenta uma posição.
+ *
+ * Mora AQUI, e não na tela, porque é propriedade do dado e não do render:
+ * enquanto viveu só no componente, `/api/canais` devolvia uma ordem e a
+ * página mostrava outra, e quem conferisse pelo JSON leria que o melhor
+ * canal da casa era um site com cinco cadastros.
+ */
+export const canalConfiavel = (l: LinhaDeCanal): boolean => {
+  if (l.contas < PISO_DO_CANAL) return false;
+  const w = wilson(l.assinantes, l.contas);
+  return w.high - w.low <= w.p;
+};
+
+/**
+ * Confiáveis primeiro, por quanto rendem. Depois os outros, por VOLUME.
+ *
+ * A troca de critério no segundo grupo é de propósito: se não dá para
+ * ranquear por rendimento — é essa a definição de `canalConfiavel` — então
+ * ordenar por rendimento ali embaixo é ordenar por ruído, e poria um canal
+ * de 25 contas na frente de um de 252. Sem régua de valor, a régua honesta
+ * é o tamanho.
+ */
+export const ordemDoRanking = (a: LinhaDeCanal, b: LinhaDeCanal): number => {
+  const ca = canalConfiavel(a);
+  const cb = canalConfiavel(b);
+  if (ca !== cb) return ca ? -1 : 1;
+  if (!ca) return b.contas - a.contas;
+  const d = receitaPorConta(b) - receitaPorConta(a);
+  return d !== 0 ? d : b.contas - a.contas;
+};
+
 /** Receita por conta madura — a régua. Zero contas devolve 0, não NaN. */
 export const receitaPorConta = (l: { receitaCents: number; contas: number }): number =>
   l.contas > 0 ? l.receitaCents / l.contas : 0;
@@ -436,12 +474,7 @@ export async function carregarCanais(janelaDias?: number): Promise<PainelDeCanai
   const semRastro = porCanal.get(SEM_RASTRO) ?? vazio(SEM_RASTRO);
   porCanal.delete(SEM_RASTRO);
 
-  const canais = [...porCanal.values()].sort((a, b) => {
-    const d = receitaPorConta(b) - receitaPorConta(a);
-    if (d !== 0) return d;
-    /* Empate em zero: desempata por quem tem mais base, não pela ordem do Map. */
-    return b.contas - a.contas;
-  });
+  const canais = [...porCanal.values()].sort(ordemDoRanking);
 
   const totais = [...canais, semRastro].reduce(
     (acc, c) => ({
