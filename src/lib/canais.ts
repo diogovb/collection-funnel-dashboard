@@ -666,18 +666,31 @@ WITH
      WHERE user_id != '' AND anonymous_id != ''
        AND user_id GLOBAL IN (SELECT uid FROM nascidos)
   ),
+  /* Primeiro POR ANÔNIMO, depois por pessoa — nunca a lista de anônimos direto
+     contra a tabela de eventos. Esse join monta um hash de 11 GiB e o servidor
+     mata a query; com três consultas em paralelo ele morre calado e o bloco some. */
+  porAnon AS (
+    SELECT anonymous_id                                AS anon,
+           toString(argMin(ip_address, timestamp))     AS ip,
+           toDateTime(min(timestamp))                  AS t0,
+           maxIf(1, positionCaseInsensitive(page_url,'sketchupId') > 0) AS no_plugin,
+           maxIf(1, extractURLParameter(page_url,'gclid') != ''
+                    OR extractURLParameter(page_url,'gbraid') != ''
+                    OR lower(extractURLParameter(page_url,'utm_source')) != '') AS tem_origem
+      FROM collection.events_distributed
+     WHERE event_date >= today() - ${EVENTOS_DIAS} AND ip_address != ''
+       AND anonymous_id GLOBAL IN (SELECT anon FROM anons)
+     GROUP BY anonymous_id
+  ),
   /* Onde e quando a conta APARECEU, e se ela nasceu cega no plugin. */
   chegada AS (
-    SELECT a.uid                                   AS uid,
-           argMin(e.ip_address, e.timestamp)       AS ip,
-           min(e.timestamp)                        AS t0,
-           maxIf(1, positionCaseInsensitive(e.page_url,'sketchupId') > 0) AS no_plugin,
-           maxIf(1, extractURLParameter(e.page_url,'gclid') != ''
-                    OR extractURLParameter(e.page_url,'gbraid') != ''
-                    OR lower(extractURLParameter(e.page_url,'utm_source')) != '') AS tem_origem
+    SELECT a.uid                      AS uid,
+           argMin(p.ip, p.t0)         AS ip,
+           min(p.t0)                  AS t0,
+           max(p.no_plugin)           AS no_plugin,
+           max(p.tem_origem)          AS tem_origem
       FROM anons AS a
-     INNER JOIN collection.events_distributed AS e ON e.anonymous_id = a.anon
-     WHERE e.event_date >= today() - ${EVENTOS_DIAS} AND e.ip_address != ''
+     INNER JOIN porAnon AS p ON p.anon = a.anon
      GROUP BY a.uid
   ),
   /* Downloads de instalador por IP, com o canal do PRÓPRIO anônimo que baixou. */

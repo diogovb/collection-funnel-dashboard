@@ -132,6 +132,7 @@ export default async function ExperimentosPage({ searchParams }: Props) {
   let exposicoes: Exposicoes | null = null;
   let cruzamentoErro: string | null = null;
   let ponte: PonteDeIp | null = null;
+  let ponteErro: string | null = null;
   {
     /* As três em paralelo, e não em sequência: as duas do ClickHouse varrem
        a MESMA janela de eventos, então enfileirá-las dobraria o tempo de
@@ -163,9 +164,14 @@ export default async function ExperimentosPage({ searchParams }: Props) {
       cruzamentoErro =
         expo.reason instanceof Error ? expo.reason.message : String(expo.reason);
 
-    /* A ponte é diagnóstico puro: se cair, o bloco dela some e mais nada muda —
-       ela não alimenta nem o ranking nem o cruzamento com o braço. */
+    /* A ponte é diagnóstico puro: ela não alimenta nem o ranking nem o
+       cruzamento com o braço. Mas o motivo de ela falhar NÃO se perde: já
+       perdi duas vezes um bloco que sumiu sem dizer nada, e as duas vezes
+       custaram um deploy só para descobrir o porquê. */
     if (pnt.status === "fulfilled") ponte = pnt.value;
+    else
+      ponteErro =
+        pnt.reason instanceof Error ? pnt.reason.message : String(pnt.reason);
   }
 
   return (
@@ -214,6 +220,7 @@ export default async function ExperimentosPage({ searchParams }: Props) {
           variantAudience={exp.variant_audience}
           cruzamentoErro={cruzamentoErro}
           ponte={ponte}
+          ponteErro={ponteErro}
         />
       ) : (
         <CanaisIndisponiveis motivo={canaisErro ?? "origem desconhecida"} />

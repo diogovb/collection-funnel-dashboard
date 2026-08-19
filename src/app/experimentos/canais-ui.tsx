@@ -1148,6 +1148,7 @@ export function SecaoCanais({
   variantAudience,
   cruzamentoErro,
   ponte,
+  ponteErro,
 }: {
   painel: PainelDeCanais;
   exposicoes?: Exposicoes | null;
@@ -1156,6 +1157,7 @@ export function SecaoCanais({
   variantAudience?: string;
   cruzamentoErro?: string | null;
   ponte?: PonteDeIp | null;
+  ponteErro?: string | null;
 }) {
   const campanhas = painel.campanhas
     .filter((c) => c.contas >= PISO_DO_CANAL)
@@ -1197,7 +1199,22 @@ export function SecaoCanais({
       <TabelaDeCanais painel={painel} />
       <CanalXPlugin painel={painel} />
 
-      {!!ponte && <PonteDoInstalador ponte={ponte} />}
+      {ponte ? (
+        <PonteDoInstalador ponte={ponte} />
+      ) : (
+        <div className={`${CARD} text-[11px] text-gray-500`}>
+          <span className="text-gray-400">
+            De onde vieram os cadastros que nasceram no plugin
+          </span>{" "}
+          — não deu para montar a ponte agora
+          {ponteErro ? (
+            <span className="font-mono text-gray-600 break-all">
+              {" "}({ponteErro})
+            </span>
+          ) : null}
+          . É diagnóstico: o resto da seção não depende dela.
+        </div>
+      )}
 
       {!!exposicoes &&
       !!canalDoUsuario &&
