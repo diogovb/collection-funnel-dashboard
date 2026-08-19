@@ -3,6 +3,8 @@ import type { Exposicoes } from "@/lib/supabase-subs";
 import {
   PISO_DO_CANAL,
   SEM_RASTRO,
+  canalConfiavel,
+  ordemDoRanking,
   receitaPorConta,
   type LinhaDeCanal,
   type PainelDeCanais,
@@ -50,39 +52,10 @@ const listar = (itens: string[]): string =>
 const fatiaPlugin = (l: LinhaDeCanal): number =>
   l.contas > 0 ? l.plugin.contas / l.contas : 0;
 
-/**
- * Canal com base suficiente para DISPUTAR o topo do ranking.
- *
- * O piso de 20 contas evita a taxa anedótica, mas não evita o pódio anedótico:
- * um canal com 25 contas e 1 assinante rende R$ 32 por conta e passa na frente
- * de todos — com a barra mais longa da tela, que é a coisa que se lê primeiro.
- * O teste é o mesmo que já esmaece a taxa: se a faixa de Wilson é mais larga
- * que a própria taxa, o número não sustenta uma posição.
- *
- * Ele não some da tela. Ele sai do pódio e vai para o fim da lista, cinza.
- */
-const confiavel = (l: LinhaDeCanal): boolean => {
-  if (l.contas < PISO_DO_CANAL) return false;
-  const w = wilson(l.assinantes, l.contas);
-  return w.high - w.low <= w.p;
-};
+/* `confiavel` e `ordemDoRanking` vivem em `lib/canais` — a ordem do ranking é
+   propriedade do dado, e a rota precisa dela tanto quanto a tela. */
+const confiavel = canalConfiavel;
 
-/**
- * Confiáveis primeiro, por quanto rendem. Depois os outros, por VOLUME.
- *
- * A troca de critério no segundo grupo é de propósito: se não dá para ranquear
- * por rendimento — é essa a definição de `confiavel` — então ordenar por
- * rendimento ali embaixo é ordenar por ruído, e poria um canal de 25 contas na
- * frente de um de 252. Sem régua de valor, a régua honesta é o tamanho.
- */
-const ordemDoRanking = (a: LinhaDeCanal, b: LinhaDeCanal): number => {
-  const ca = confiavel(a);
-  const cb = confiavel(b);
-  if (ca !== cb) return ca ? -1 : 1;
-  if (!ca) return b.contas - a.contas;
-  const d = receitaPorConta(b) - receitaPorConta(a);
-  return d !== 0 ? d : b.contas - a.contas;
-};
 
 /* ------------------------------------------------------------- veredito --- */
 
