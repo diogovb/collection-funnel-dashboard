@@ -586,6 +586,11 @@ function CartaoBraco({
   const descartes = arm.discarded ?? [];
   const compradores = arm.buyers_all ?? 0;
   const receita = arm.revenue_all_cents ?? 0;
+  /* O par TEM de casar com o recorte de cima: aqui o cartão mostra "desde o
+     início", então o upsell também é o `_all`. Misturar com o recorte de
+     maduros mostraria uma fatia maior que o bolo. */
+  const receitaDeUpsell = arm.upsell_revenue_all_cents ?? 0;
+  const compradoresDeUpsell = arm.upsell_buyers_all ?? 0;
   const descartadas = descartes.reduce((n, d) => n + d.attempts, 0);
 
   return (
@@ -607,9 +612,19 @@ function CartaoBraco({
           rotulo="Receita"
           valor={brl(receita)}
           sub={
-            compradores > 0
-              ? `ticket ${brl(Math.round(receita / compradores))}`
-              : undefined
+            [
+              compradores > 0
+                ? `ticket ${brl(Math.round(receita / compradores))}`
+                : null,
+              /* Quanto veio da oferta pós-compra. O experimento testa PREÇO;
+                 sem esta linha, uma máquina de upgrade rodando por cima mexe
+                 no número dos dois braços por um caminho que não é o preço. */
+              receitaDeUpsell > 0
+                ? `${brl(receitaDeUpsell)} de upsell (${compradoresDeUpsell})`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
           }
         />
         <Numero

@@ -42,6 +42,27 @@ export type ExperimentArm = {
   /** Compradores MADUROS. Base da taxa, do bootstrap e do veredito. */
   buyers: number;
   revenue_cents: number;
+  /**
+   * Quanto da receita acima veio da oferta pós-compra
+   * (`subscription_invoices.invoice_type = 'upsell_sucesso'`).
+   *
+   * Vem SEMPRE, com `p_include_upsell` ligado ou desligado — é o que permite
+   * ler o braço com e sem a máquina de upgrade rodando por cima. O
+   * experimento testa PREÇO; sem separar isto, uma oferta de upgrade mexe no
+   * ARPEU dos dois braços por um caminho que não é o preço, e não dá para
+   * saber de onde veio a diferença.
+   *
+   * Os dois recortes, para casar com o par certo: `*_cents`/`*_buyers`
+   * acompanham `revenue_cents`/`buyers` (só maduros) e `*_all_*`
+   * acompanham `revenue_all_cents`/`buyers_all` (desde o início).
+   *
+   * Opcionais porque o painel e o banco sobem separados: resposta de antes
+   * da migration de 19/08 não traz os campos.
+   */
+  upsell_buyers?: number;
+  upsell_revenue_cents?: number;
+  upsell_buyers_all?: number;
+  upsell_revenue_all_cents?: number;
   sum_sq_cents: number;
   /**
    * Compradores entre TODOS os expostos — o que já aconteceu, sem esperar a
