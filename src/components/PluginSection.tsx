@@ -217,16 +217,28 @@ export default function PluginSection() {
      sei". */
   const medidas = dados.coortes.filter((c) => pctTotal(c) != null);
   /* O número grande sai da última semana MADURA: a turma da semana em curso
-     ainda não teve as 48h inteiras e viraria manchete por acidente.
-     ⚠️ `picoCoorte` também só olha maduras — uma semana parcial com pct alto
-     reescalava a largura de TODAS as barras. */
+     ainda não teve as 48h inteiras e viraria manchete por acidente. */
   const fechadasMedidas = medidas.filter((c) => c.madura);
   const coorteUlt = fechadasMedidas.at(-1) ?? null;
   const coortePen = fechadasMedidas.at(-2) ?? null;
-  const picoCoorte = Math.max(
-    ...fechadasMedidas.map((c) => pctTotal(c) as number),
-    1,
-  );
+  /**
+   * A régua da barra é a MAIOR TURMA da série, e é a mesma para todas as linhas.
+   *
+   * A barra media taxa antes, e taxa sozinha mente pelo denominador: uma semana
+   * de 2 cadastros com 1 ativação desenhava metade da pista — do mesmo tamanho
+   * que 500 de 1.000. Com a pista proporcional ao tamanho da turma, o trecho
+   * aceso vira a QUANTIDADE de gente que foi ao plugin, comparável linha a
+   * linha, e a pista atrás diz de quantos ela saiu.
+   *
+   * As duas leituras convivem porque a fração continua exata: aceso ÷ pista =
+   * ativou ÷ novos = a taxa que está escrita ao lado.
+   *
+   * ⚠️ Entram as semanas PARCIAIS no cálculo, ao contrário do pico de taxa que
+   * estava aqui antes. Uma parcial não pode ter turma maior que a verdade — o
+   * `novos` já desconta quem tem menos de 48h —, então ela nasce curta, que é
+   * exatamente o recado certo: a linha ainda está enchendo.
+   */
+  const maiorCoorte = Math.max(...dados.coortes.map((c) => c.novos), 1);
 
   return (
     <div className="space-y-4">
@@ -305,6 +317,13 @@ export default function PluginSection() {
           segunda é a que a campanha de instalação compra. A quebra à direita diz
           por onde vieram.
         </p>
+        <p className="text-[11px] text-gray-500 mb-3">
+          <strong className="text-gray-400">Como ler a barra:</strong> a pista
+          escura é o tamanho da turma daquela semana e o trecho aceso é quanta
+          gente foi ao plugin — os dois na mesma régua, então comprimento é{" "}
+          <strong>quantidade</strong>, e não taxa. A porcentagem ao lado é a
+          fração da pista que acendeu.
+        </p>
 
         {coorteUlt && pctTotal(coorteUlt) != null && (
           <div className="flex items-baseline gap-3 mb-4 flex-wrap">
@@ -323,7 +342,12 @@ export default function PluginSection() {
           </div>
         )}
 
-        <div className="space-y-2">
+        {/* A linha tem 348px de colunas fixas: abaixo de ~520px de largura o
+            `flex-1` da barra colapsava para 24px no master, e para ZERO com a
+            coluna de quantidade. Rola na horizontal, igual à tabela crua logo
+            abaixo — encolher a barra até sumir é pior do que rolar. */}
+        <div className="overflow-x-auto">
+        <div className="space-y-2 min-w-[520px]">
           {dados.coortes.map((c) => {
             const pct = pctTotal(c);
             return (
@@ -342,21 +366,30 @@ export default function PluginSection() {
                     </span>
                   )}
                 </span>
-                <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                  {pct != null && (
-                    <div
-                      className="h-full rounded-full bg-indigo-500 transition-all duration-700"
-                      /* Clamp: a régua sai só das semanas MADURAS, então uma
-                         parcial com taxa acima do pico estouraria os 100%. */
-                      style={{ width: `${Math.min(100, (100 * pct) / picoCoorte)}%` }}
-                    />
-                  )}
+                <div className="flex-1 h-2">
+                  {/* A pista é a turma; o aceso, quem foi ao plugin. Ambos na
+                      mesma régua, então largura de aceso É quantidade. */}
+                  <div
+                    className="h-full bg-gray-800 rounded-full overflow-hidden"
+                    style={{ width: `${(100 * c.novos) / maiorCoorte}%` }}
+                    title={`${nf(c.ativouTotal)} de ${nf(c.novos)} contas criadas`}
+                  >
+                    {pct != null && (
+                      <div
+                        className="h-full rounded-full bg-indigo-500 transition-all duration-700"
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                  </div>
                 </div>
-                <span className="w-12 shrink-0 text-right font-medium text-gray-200 tabular-nums">
+                <span className="w-10 shrink-0 text-right font-semibold text-gray-100 tabular-nums">
+                  {nf(c.ativouTotal)}
+                </span>
+                <span className="w-12 shrink-0 text-right text-gray-400 tabular-nums">
                   {pct == null ? "—" : `${pct.toFixed(1)}%`}
                 </span>
                 <span className="w-44 shrink-0 text-right text-gray-500 tabular-nums">
-                  {nf(c.ativouTotal)} de {nf(c.novos)}
+                  de {nf(c.novos)} cadastros
                   <span className="block text-[10px] text-gray-600">
                     {nf(c.pluginNovos)} pelo plugin · {nf(c.webAtivou)} da web
                     {pctWeb(c) != null && ` (${pctWeb(c)!.toFixed(1)}%)`}
@@ -365,6 +398,7 @@ export default function PluginSection() {
               </div>
             );
           })}
+        </div>
         </div>
       </div>
 
