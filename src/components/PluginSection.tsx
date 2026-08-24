@@ -322,7 +322,11 @@ export default function PluginSection() {
           escura é o tamanho da turma daquela semana e o trecho aceso é quanta
           gente foi ao plugin — os dois na mesma régua, então comprimento é{" "}
           <strong>quantidade</strong>, e não taxa. A porcentagem ao lado é a
-          fração da pista que acendeu.
+          fração da pista que acendeu. O aceso vem em dois tons:{" "}
+          <span className="inline-block w-2 h-2 rounded-full bg-indigo-500 align-middle" />{" "}
+          nasceu no plugin (o que a campanha de instalação compra) e{" "}
+          <span className="inline-block w-2 h-2 rounded-full bg-indigo-500/40 align-middle" />{" "}
+          migrou da web.
         </p>
 
         {coorteUlt && pctTotal(coorteUlt) != null && (
@@ -345,11 +349,35 @@ export default function PluginSection() {
         {/* A linha tem 348px de colunas fixas: abaixo de ~520px de largura o
             `flex-1` da barra colapsava para 24px no master, e para ZERO com a
             coluna de quantidade. Rola na horizontal, igual à tabela crua logo
-            abaixo — encolher a barra até sumir é pior do que rolar. */}
+            abaixo — encolher a barra até sumir é pior do que rolar.
+            O piso é 640px e não 520px por causa das fatias: com 520 a barra
+            ficava com 160px e a menor fatia (18 pessoas em 27/07) desenhava
+            2px, menos que a fresta. Com 640 a barra tem ~290px e nenhuma fatia
+            fica abaixo de 4px. No desktop a linha passa de 940px, então o piso
+            não encosta em nada. */}
         <div className="overflow-x-auto">
-        <div className="space-y-2 min-w-[520px]">
+        <div className="space-y-2 min-w-[640px]">
           {dados.coortes.map((c) => {
             const pct = pctTotal(c);
+            /**
+             * O aceso se divide nas duas rotas que o texto à direita já
+             * nomeia: quem nasceu dentro do plugin e quem migrou da web.
+             *
+             * A soma fecha por construção, não por sorte: em
+             * `admin_plugin_cohorts` (migration `20260818150000`) a régua é
+             * `ativou = nasceu_no_plugin OR (tocou dentro da janela)`, então
+             * nascer no plugin IMPLICA ativou e
+             * `ativouTotal = pluginNovos + webAtivou` sempre.
+             *
+             * Ainda assim a web entra como RESTO, e não como `webAtivou`:
+             * `ativouTotal` é o número impresso ao lado, e amarrar as fatias a
+             * ele garante que o desenho nunca discorde do número se a
+             * definição da régua mudar lá no SQL. Se um dia `pluginNovos`
+             * passasse do total, o aceso fica inteiro na cor do plugin em vez
+             * de estourar.
+             */
+            const fatiaPlugin = c.novos > 0 ? (100 * c.pluginNovos) / c.novos : 0;
+            const fatiaWeb = Math.max(0, (pct ?? 0) - fatiaPlugin);
             return (
               <div
                 key={c.semana}
@@ -372,13 +400,26 @@ export default function PluginSection() {
                   <div
                     className="h-full bg-gray-800 rounded-full overflow-hidden"
                     style={{ width: `${(100 * c.novos) / maiorCoorte}%` }}
-                    title={`${nf(c.ativouTotal)} de ${nf(c.novos)} contas criadas`}
+                    title={`${nf(c.ativouTotal)} de ${nf(c.novos)} contas criadas · ${nf(c.pluginNovos)} nasceram no plugin, ${nf(c.webAtivou)} migraram da web`}
                   >
                     {pct != null && (
+                      /* `flex-grow` reparte o aceso entre as duas rotas sem
+                         percentual aninhado, e o `gap` de 1px tira a fresta do
+                         próprio aceso — o total continua sendo exatamente
+                         `pct`. */
                       <div
-                        className="h-full rounded-full bg-indigo-500 transition-all duration-700"
+                        className="h-full flex gap-[1px] rounded-full overflow-hidden transition-all duration-700"
                         style={{ width: `${pct}%` }}
-                      />
+                      >
+                        <div
+                          className="bg-indigo-500"
+                          style={{ flexGrow: fatiaPlugin, flexBasis: 0 }}
+                        />
+                        <div
+                          className="bg-indigo-500/40"
+                          style={{ flexGrow: fatiaWeb, flexBasis: 0 }}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
