@@ -95,6 +95,30 @@ function Taxa({ acertos, base }: { acertos: number; base: number }) {
   );
 }
 
+/**
+ * A contagem, nas duas réguas que a tela usa.
+ *
+ * Em cima o que já teve chance de assinar (o denominador da taxa); embaixo o
+ * que ainda não teve. Sem a segunda linha, uma peça que estreou esta semana
+ * aparece como **0** e lê-se "ninguém veio" — quando o certo é "ainda não dá
+ * para saber". Foi o que aconteceu com os posts do blog e com a landing nova.
+ */
+function Contagem({ maduras, todas }: { maduras: number; todas: number }) {
+  const novas = Math.max(0, todas - maduras);
+  return (
+    <>
+      <span className={maduras === 0 ? "text-gray-500" : ""}>
+        {maduras === 0 ? "—" : num(maduras)}
+      </span>
+      {novas > 0 && (
+        <span className="block text-[10px] text-gray-600 mt-0.5">
+          +{num(novas)} maturando
+        </span>
+      )}
+    </>
+  );
+}
+
 /* ------------------------------------------------------------- canais ----- */
 
 function TabelaDeCanais({ painel }: { painel: PainelDeOrigem }) {
@@ -143,12 +167,7 @@ function TabelaDeCanais({ painel }: { painel: PainelDeOrigem }) {
                     <Chip qualidade={c.qualidade} />
                   </td>
                   <td className="text-right py-2 px-2 tabular-nums text-gray-300">
-                    {num(c.contas)}
-                    {c.contasTodas > c.contas && (
-                      <span className="block text-[10px] text-gray-600 mt-0.5">
-                        +{num(c.contasTodas - c.contas)} maturando
-                      </span>
-                    )}
+                    <Contagem maduras={c.contas} todas={c.contasTodas} />
                   </td>
                   <td className="text-right py-2 px-2 tabular-nums">
                     <Taxa acertos={c.assinantes} base={c.contas} />
@@ -193,7 +212,10 @@ function ForaDoRanking({ painel }: { painel: PainelDeOrigem }) {
       </h3>
       <p className="text-xs text-gray-500 mt-1 leading-relaxed">
         Continuam no total (o denominador não perde nada), mas não competem: não
-        são canais de aquisição.
+        são canais de aquisição. Aqui a contagem é de{" "}
+        <strong>contas criadas</strong> — não a de contas maduras da tabela
+        acima, porque o que importa nestes baldes é o tamanho do buraco, não a
+        taxa deles.
       </p>
       <div className="mt-3 space-y-2.5">
         {linhas.map((c) => (
@@ -202,7 +224,7 @@ function ForaDoRanking({ painel }: { painel: PainelDeOrigem }) {
               <div className="flex items-baseline gap-2 flex-wrap">
                 <span className="text-xs text-gray-200">{c.canal}</span>
                 <span className="text-[11px] text-gray-500 tabular-nums">
-                  {num(c.contasTodas)} contas
+                  {num(c.contasTodas)} contas criadas
                   {total > 0 && ` · ${taxa(c.contasTodas / total)} da base`}
                 </span>
               </div>
@@ -268,7 +290,7 @@ function TabelaDePecas({ pecas }: { pecas: LinhaDePeca[] }) {
                   {p.posicao || "—"}
                 </td>
                 <td className="text-right py-2 px-2 tabular-nums text-gray-300">
-                  {num(p.contas)}
+                  <Contagem maduras={p.contas} todas={p.contasTodas} />
                 </td>
                 <td className="text-right py-2 pl-2 tabular-nums">
                   <Taxa acertos={p.assinantes} base={p.contas} />
@@ -323,7 +345,7 @@ function TabelaDePortas({ portas }: { portas: LinhaDePorta[] }) {
                 </td>
                 <td className="py-2 px-2 text-gray-500">{p.dispositivo}</td>
                 <td className="text-right py-2 px-2 tabular-nums text-gray-300">
-                  {num(p.contas)}
+                  <Contagem maduras={p.contas} todas={p.contasTodas} />
                 </td>
                 <td className="text-right py-2 pl-2 tabular-nums">
                   <Taxa acertos={p.assinantes} base={p.contas} />
