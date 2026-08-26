@@ -449,7 +449,7 @@ ${IDENT},
        AND user_id GLOBAL IN (SELECT uid FROM novos_uid)
      GROUP BY user_id
   )
-SELECT canal,
+SELECT ${CLASSIFICACAO} AS canal,
        if(d.interesse = '', '(não respondeu)', d.interesse) AS interesse,
        if(d.metodo = '', '(não informado)', d.metodo)       AS metodo,
        count() AS contas
