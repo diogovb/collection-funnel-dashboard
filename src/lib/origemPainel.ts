@@ -59,6 +59,8 @@ export type LinhaDePeca = {
   contas: number;
   assinantes: number;
   receitaCents: number;
+  /** Inclui quem ainda não teve os `janelaDias` para assinar. */
+  contasTodas: number;
 };
 
 /** Por qual porta a pessoa entrou: host + primeira rota. */
@@ -69,6 +71,8 @@ export type LinhaDePorta = {
   contas: number;
   assinantes: number;
   receitaCents: number;
+  /** Inclui quem ainda não teve os `janelaDias` para assinar. */
+  contasTodas: number;
 };
 
 /** O que a pessoa DISSE que queria, cruzado com de onde ela veio. */
@@ -328,10 +332,12 @@ export async function carregarOrigem(janelaDias?: number): Promise<PainelDeOrige
         contas: 0,
         assinantes: 0,
         receitaCents: 0,
+        contasTodas: 0,
       };
       p.contas += n(linha.contas);
       p.assinantes += n(linha.assinantes);
       p.receitaCents += n(linha.receita_cents);
+      p.contasTodas += n(linha.contas_todas);
       porPeca.set(chave, p);
     }
 
@@ -346,10 +352,12 @@ export async function carregarOrigem(janelaDias?: number): Promise<PainelDeOrige
         contas: 0,
         assinantes: 0,
         receitaCents: 0,
+        contasTodas: 0,
       };
       porta.contas += n(linha.contas);
       porta.assinantes += n(linha.assinantes);
       porta.receitaCents += n(linha.receita_cents);
+      porta.contasTodas += n(linha.contas_todas);
       porPorta.set(chave, porta);
     }
   }
@@ -386,9 +394,13 @@ export async function carregarOrigem(janelaDias?: number): Promise<PainelDeOrige
     canais,
     foraDoRanking,
     /* Ordenado por volume, e não por taxa: a maioria das peças fica abaixo do
-       piso, e ranquear por taxa poria a de 3 contas no topo. */
-    pecas: [...porPeca.values()].sort((a, b) => b.contas - a.contas),
-    portas: [...porPorta.values()].sort((a, b) => b.contas - a.contas),
+       piso, e ranquear por taxa poria a de 3 contas no topo.
+
+       E por volume TOTAL, não pelo maduro: uma peça que estreou esta semana tem
+       zero contas maduras por construção, e ordenar pelo maduro a jogaria para
+       o fim da lista exatamente enquanto ela é a novidade que alguém quer ver. */
+    pecas: [...porPeca.values()].sort((a, b) => b.contasTodas - a.contasTodas),
+    portas: [...porPorta.values()].sort((a, b) => b.contasTodas - a.contasTodas),
     totais,
     geradoEm: agora.toISOString(),
   };
