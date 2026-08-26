@@ -1,6 +1,7 @@
 import "server-only";
 import { chQuery } from "@/lib/clickhouse";
 import { wilson } from "@/lib/stats";
+import { CANAL, classificacaoSql } from "@/lib/origem";
 
 /**
  * De onde vêm os assinantes — canal de aquisição cruzado com quem pagou.
@@ -57,7 +58,7 @@ export const PISO_DA_SERIE = "2026-06-27 00:00:00";
 export const LOOKBACK_DIAS = 30;
 
 /** Quantos dias de evento a query varre para cobrir coorte + lookback. */
-const EVENTOS_DIAS = COORTE_DIAS + LOOKBACK_DIAS + 5;
+export const EVENTOS_DIAS = COORTE_DIAS + LOOKBACK_DIAS + 5;
 
 /**
  * Abaixo de quantas contas a taxa vira anedota.
@@ -68,7 +69,7 @@ const EVENTOS_DIAS = COORTE_DIAS + LOOKBACK_DIAS + 5;
 export const PISO_DO_CANAL = 20;
 
 /** O balde que não é canal. Existe para o denominador não mentir. */
-export const SEM_RASTRO = "Sem rastro";
+export const SEM_RASTRO: string = CANAL.semRastro;
 
 /**
  * O outro balde que não é canal — e este engana muito mais.
@@ -90,7 +91,7 @@ export const SEM_RASTRO = "Sem rastro";
  * faria a tela comparar uma ORIGEM com uma SUPERFÍCIE, e — pior — daria a um
  * balde cego o crédito de uma campanha paga.
  */
-export const NASCEU_NO_PLUGIN = "Nasceu dentro do plugin";
+export const NASCEU_NO_PLUGIN: string = CANAL.nasceuNoPlugin;
 
 /* ------------------------------------------------------------------ tipos -- */
 
@@ -176,40 +177,25 @@ export type PainelDeCanais = {
 /* ------------------------------------------------------------------- sql --- */
 
 /**
- * A classificação do canal, em um lugar só.
+ * A classificação do canal — agora em `lib/origem.ts`, não mais aqui.
  *
- * A ordem importa, e duas posições são decisão e não acaso:
+ * Ela vivia inline neste arquivo, e o mesmo julgamento estava escrito outras
+ * duas vezes (na home e na ponte por IP), com nomes que divergiam. O caso que
+ * doía era "Site": aqui significava *veio de um referrer nomeado*; na home,
+ * *não sei nada*. Um resolvedor só acaba com isso.
  *
- * 1. "Google orgânico" vem ANTES de "Google Ads" porque `utm_source=google` com
- *    `utm_medium=organic` é orgânico marcado à mão, não anúncio.
- * 2. O teste do plugin vem ANTES de "Direto". O plugin abre o navegador sem
- *    referrer e sem utm; se o teste ficasse depois, a superfície inteira do
- *    plugin sumiria dentro de "Direto" — e é justamente o balde mais acionável
- *    do painel.
+ * Conferido conta a conta antes de trocar: nenhuma muda de canal. O que muda é
+ * o NOME ("Site: x" -> "Orgânico: x", "Gatilho interno" -> "CRM próprio") e o
+ * DETALHE — o antigo "Direto", 730 contas num balde só, se abre em biblioteca
+ * (443) / app (147) / página de cadastro (72) / landing page (67). Uma única
+ * conta troca de natureza, e é conserto: referrer de `collection.archi` era
+ * lido como site externo, porque a régua antiga só conhecia `.com.br`.
  */
-const CLASSIFICACAO = `
-    multiIf(p.tem_toque = 0, '${SEM_RASTRO}',
-      lower(extractURLParameter(p.url0,'utm_source')) = 'google'
-        AND lower(extractURLParameter(p.url0,'utm_medium')) IN ('organic','referral'), 'Google orgânico',
-      extractURLParameter(p.url0,'gclid') != ''
-        OR extractURLParameter(p.url0,'gbraid') != ''
-        OR extractURLParameter(p.url0,'wbraid') != ''
-        OR lower(extractURLParameter(p.url0,'utm_source')) = 'google', 'Google Ads',
-      lower(extractURLParameter(p.url0,'utm_source')) IN ('fb','ig','meta','facebook','instagram'), 'Meta Ads',
-      lower(extractURLParameter(p.url0,'utm_source')) = 'pinterest', 'Pinterest Ads',
-      lower(extractURLParameter(p.url0,'utm_source')) = 'blog', 'Blog',
-      lower(extractURLParameter(p.url0,'utm_source')) = 'collection_trigger', 'Gatilho interno',
-      lower(extractURLParameter(p.url0,'utm_source')) != '', 'Outra campanha',
-      positionCaseInsensitive(p.url0,'sketchupId') > 0, '${NASCEU_NO_PLUGIN}',
-      lower(cutWWW(domain(p.ref0))) = '', 'Direto',
-      endsWith(lower(cutWWW(domain(p.ref0))),'collection.com.br'), 'Direto',
-      lower(cutWWW(domain(p.ref0))) LIKE 'google.%'
-        OR lower(cutWWW(domain(p.ref0))) LIKE '%.google.%', 'Google orgânico',
-      lower(cutWWW(domain(p.ref0))) LIKE '%instagram%'
-        OR lower(cutWWW(domain(p.ref0))) LIKE '%facebook%', 'Meta orgânico',
-      lower(cutWWW(domain(p.ref0))) LIKE '%pinterest%', 'Pinterest orgânico',
-      concat('Site: ', lower(cutWWW(domain(p.ref0))))
-    )`;
+const CLASSIFICACAO = classificacaoSql({
+  url: "p.url0",
+  ref: "p.ref0",
+  semToque: "p.tem_toque = 0",
+});
 
 /**
  * O universo, deduplicado.
@@ -223,7 +209,7 @@ const CLASSIFICACAO = `
  * cobre só 53% das contas criadas, e o buraco é correlacionado com a superfície
  * de cadastro. Usá-lo como denominador perderia metade da base do lado errado.
  */
-const IDENT = `
+export const IDENT = `
   ident AS (
     SELECT app_user_id                          AS uid,
            argMax(global_user_id, updated_at)   AS guid,
