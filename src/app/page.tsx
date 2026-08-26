@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { veredito } from "@/lib/veredito";
+import { normalizarCanal } from "@/lib/origem";
 import { supabase } from "@/lib/supabase";
 import AutomationPanel, { UserActionsList } from "@/components/AutomationPanel";
 import PluginSection from "@/components/PluginSection";
@@ -230,7 +231,7 @@ interface UserJourney {
 
 type DatePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
-type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin" | "semWhatsapp" | "comWhatsapp";
+type DrillType = "profession" | "platform" | "method" | "software" | "whatBrought" | "state" | "step" | "referrer" | "origem" | "campaign" | "domain" | "hour" | "day" | "all" | "crmStage" | "hasDownloads" | "hasRenders" | "icp" | "activatedPlugin" | "semWhatsapp" | "comWhatsapp";
 type DrillFilter = { type: DrillType; value: string; label: string } | null;
 
 type AdvancedFilters = {
@@ -280,35 +281,51 @@ function titleCase(s: string): string {
 }
 
 // Origem em DUAS dimensões, que antes brigavam por um campo só:
-//   canal   — de onde veio o clique (utm_source, ou inferido de gclid/fbclid)
+//   canal   — de onde veio o clique (agora resolvido em `lib/origem`)
 //   surface — em que superfície a pessoa se cadastrou (plugin ou navegador)
 // Quando as duas dizem a mesma coisa mostra uma; quando diferem (anúncio que
 // converteu DENTRO do plugin) mostra as duas, que era o caso que se perdia.
-// Sem surface — todo o histórico até 03/08 — cai no comportamento antigo.
+//
+// O canal saiu daqui e foi para `lib/origem.ts` porque esta função era metade
+// do problema: sem `utm_source`, sem `gclid` e sem `fbclid` ela devolvia
+// "Site" — a mesma palavra para Google orgânico, Instagram orgânico e entrada
+// direta, que são três coisas com conversões diferentes. E o `referrer`, que
+// separa as três, já chegava no funil e era descartado bem aqui.
 function formatOrigin(
   utmSource: string,
   gclid?: string,
   fbclid?: string,
   surface?: string,
+  referrer?: string,
+  utmMedium?: string,
 ): string {
-  const canalCru = utmSource || (gclid ? "google_ads" : fbclid ? "meta_ads" : "");
-  // Quando o evento traz `surface`, um utm_source "plugin"/"site" é o nosso
-  // próprio fallback, não canal de aquisição — mostrar os dois viraria
-  // "Plugin · Plugin (Revit)". Sem `surface` (histórico) o valor é o que a
-  // pessoa realmente trouxe na URL e continua valendo como canal.
+  // "Direto" é o rótulo que a home usa para "não havia referrer"; para o
+  // resolvedor isso é ausência de sinal, não um domínio.
+  const ref = referrer && referrer !== "Direto" ? referrer : "";
+  const canalCru = normalizarCanal({
+    utmSource,
+    utmMedium,
+    gclid,
+    fbclid,
+    referrer: ref,
+    // A superfície entra pelo campo próprio, abaixo, e não como canal: quem
+    // se cadastra no plugin pode ter vindo de um anúncio, e as duas
+    // informações cabem juntas.
+  });
+  // `utm_source` "plugin"/"site" é o nosso próprio fallback, não canal de
+  // aquisição — mostrar os dois viraria "Plugin · Plugin (Revit)".
   const ehFallbackProprio =
-    !!surface && ["plugin", "site"].includes(canalCru.toLowerCase());
-  const canal =
-    canalCru && !ehFallbackProprio
-      ? titleCase(canalCru.replace(/_/g, " "))
-      : null;
+    !!surface && ["plugin", "site"].includes(utmSource.toLowerCase());
   const plugin = surface?.startsWith("plugin")
     ? surface === "plugin_revit"
       ? "Plugin (Revit)"
       : "Plugin"
     : null;
+  // Sem nenhum sinal o resolvedor devolve "Direto"; com o plugin no lugar, é
+  // ele que nomeia a linha.
+  const canal = ehFallbackProprio || (plugin && canalCru === "Direto") ? null : canalCru;
   if (canal && plugin) return `${canal} · ${plugin}`;
-  return canal ?? plugin ?? "Site";
+  return canal ?? plugin ?? "Direto";
 }
 
 function formatDate(iso: string): string {
@@ -790,7 +807,7 @@ export default function Dashboard() {
   const origemSeg = useMemo(() => {
     const map = new Map<string, number>();
     for (const j of signupJourneys) {
-      const label = formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface);
+      const label = formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface, j.referrerDomain, j.utmMedium);
       map.set(label, (map.get(label) || 0) + 1);
     }
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -855,6 +872,11 @@ export default function Dashboard() {
           return (j.state ?? null) === drillFilter.value;
         case "referrer":
           return j.referrerDomain === drillFilter.value;
+        case "origem":
+          return (
+            formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface, j.referrerDomain, j.utmMedium) ===
+            drillFilter.value
+          );
         case "campaign": {
           const key = j.utmCampaign ? `${j.utmSource} / ${j.utmCampaign}` : j.utmSource;
           return key === drillFilter.value;
@@ -1036,8 +1058,29 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Origem dos cadastros (plugin / Google Ads / Meta Ads / Site) */}
-        <SegCard title="Origem dos cadastros" data={origemSeg} />
+        {/* Origem dos cadastros. Era o unico SegCard sem drill-down —
+            justamente o que responde a pergunta do proprio titulo. */}
+        <SegCard
+          title="Origem dos cadastros"
+          data={origemSeg}
+          onItemClick={(label) => openDrill("origem", label, label)}
+          headerRight={
+            <a href="/origem" className="text-[11px] text-indigo-400 hover:text-indigo-300">
+              ver detalhe →
+            </a>
+          }
+        />
+
+        {/* Referrer: calculado desde sempre e nunca renderizado. E o sinal que
+            separa Google organico de Instagram organico de trafego direto —
+            os tres viviam dentro da palavra "Site". */}
+        {referrerSeg.length > 0 && (
+          <SegCard
+            title="Site de origem (referrer)"
+            data={referrerSeg}
+            onItemClick={(label) => openDrill("referrer", label, label)}
+          />
+        )}
 
         {/* Campaigns */}
         {hasCampaigns && (
@@ -1169,7 +1212,7 @@ export default function Dashboard() {
                             {j.name || j.email || "Sem nome"}
                           </span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${(j.utmSource || j.gclid || j.fbclid || j.surface) ? "bg-fuchsia-500/20 text-fuchsia-300" : "bg-gray-600/20 text-gray-400"}`}>
-                            {formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface)}
+                            {formatOrigin(j.utmSource, j.gclid, j.fbclid, j.surface, j.referrerDomain, j.utmMedium)}
                           </span>
                           {j.contaSemTelefone && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300">
@@ -1275,7 +1318,7 @@ export default function Dashboard() {
                 <Meta label="Profissão" value={PROFESSION_LABELS[selectedUser.profession] || selectedUser.profession || "—"} />
                 <Meta label="Plataforma" value={selectedUser.platform || "—"} />
                 <Meta label="Origem" value={(() => {
-                  const base = formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid, selectedUser.surface);
+                  const base = formatOrigin(selectedUser.utmSource, selectedUser.gclid, selectedUser.fbclid, selectedUser.surface, selectedUser.referrerDomain, selectedUser.utmMedium);
                   return selectedUser.utmCampaign ? `${base} · ${selectedUser.utmCampaign}` : base;
                 })()} />
                 <Meta label="Método" value={selectedUser.method === "google" ? "Google" : selectedUser.method ? "Email/Senha" : "—"} />

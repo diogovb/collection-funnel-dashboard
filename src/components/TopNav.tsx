@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
  */
 const ABAS = [
   { href: "/", label: "Funil" },
+  { href: "/origem", label: "Origem" },
   { href: "/experimentos", label: "Experimentos" },
   { href: "/retencao", label: "Retenção" },
 ];
